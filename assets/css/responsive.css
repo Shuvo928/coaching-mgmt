@@ -1,0 +1,212 @@
+/* ========================================
+   Responsive Design
+========================================= */
+
+/* Large Desktop (1200px and up) */
+@media (min-width: 1200px) {
+    .container {
+        max-width: 1140px;
+    }
+}
+
+/* Desktop (992px to 1199px) */
+@media (max-width: 1199px) {
+    .sidebar {
+        width: 250px !important;
+    }
+    
+    .main-content {
+        margin-left: 250px !important;
+    }
+    
+    .stat-card h3 {
+        font-size: 24px;
+    }
+}
+
+/* Tablet (768px to 991px) */
+@media (max-width: 991px) {
+    .sidebar {
+        width: 80px !important;
+    }
+    
+    .sidebar .sidebar-header h3,
+    .sidebar .menu-item span {
+        display: none !important;
+    }
+    
+    .sidebar .menu-item {
+        justify-content: center;
+        padding: 15px !important;
+    }
+    
+    .sidebar .menu-item i {
+        width: auto !important;
+        font-size: 20px !important;
+    }
+    
+    .main-content {
+        margin-left: 80px !important;
+        padding: 15px !important;
+    }
+    
+    .top-navbar {
+        padding: 12px 20px !important;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+    
+    .charts-row {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* Mobile Landscape (576px to 767px) */
+@media (max-width: 767px) {
+    .stats-grid {
+        grid-template-columns: 1fr !important;
+    }
+    
+    .quick-actions {
+        flex-direction: column;
+    }
+    
+    .quick-actions .action-btn {
+        width: 100%;
+    }
+    
+    .top-navbar .page-title h4 {
+        font-size: 18px;
+    }
+    
+    .card-header {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .card-header .btn {
+        width: 100%;
+    }
+    
+    .filter-section .row {
+        gap: 10px;
+    }
+    
+    .table thead {
+        display: none;
+    }
+    
+    .table tbody tr {
+        display: block;
+        margin-bottom: 15px;
+        border: 1px solid #eee;
+        border-radius: 10px;
+    }
+    
+    .table tbody td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        border: none;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .table tbody td:before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: #333;
+        margin-right: 10px;
+    }
+    
+    .table tbody td:last-child {
+        border-bottom: none;
+    }
+}
+
+/* Mobile Portrait (up to 575px) */
+@media (max-width: 575px) {
+    .main-content {
+        padding: 10px !important;
+    }
+    
+    .top-navbar {
+        flex-direction: column;
+        gap: 10px;
+        text-align: center;
+    }
+    
+    .user-info {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .modal-dialog {
+        margin: 10px;
+    }
+    
+    .modal-body {
+        padding: 15px !important;
+    }
+    
+    .form-row {
+        flex-direction: column;
+    }
+    
+    .btn-save {
+        padding: 10px !important;
+    }
+}
+
+/* Small Mobile (up to 400px) */
+@media (max-width: 400px) {
+    .stat-card {
+        padding: 15px !important;
+    }
+    
+    .stat-card h3 {
+        font-size: 20px !important;
+    }
+    
+    .badge {
+        font-size: 10px !important;
+        padding: 3px 8px !important;
+    }
+    
+    .action-btn {
+        padding: 3px 6px !important;
+        font-size: 10px !important;
+    }
+}
+
+/* Print Styles */
+@media print {
+    .sidebar,
+    .top-navbar,
+    .quick-actions,
+    .no-print {
+        display: none !important;
+    }
+    
+    .main-content {
+        margin-left: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .card {
+        box-shadow: none !important;
+        border: 1px solid #ddd !important;
+        page-break-inside: avoid;
+    }
+    
+    table {
+        page-break-inside: auto;
+    }
+    
+    tr {
+        page-break-inside: avoid;
+        page-break-after: auto;
+    }
+}
