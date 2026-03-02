@@ -591,7 +591,7 @@
 </h1>
                     
                     <div class="class-selector">
-                        <div class="class-card">SSC Batch 2026</div>
+                        <div class="class-card">SSC Batch </div>
                         <div class="class-card">Class 9</div>
                         <div class="class-card">Class 10</div>
                     </div>
@@ -653,41 +653,56 @@
     </section>
 
     <!-- Offline Branch Section -->
-    <section class="section-padding" style="background: var(--light-bg);">
-        <div class="container">
-            <div class="text-center" data-aos="fade-up">
-                <h2 class="section-title">Our Branch Locations</h2>
-                <p class="section-subtitle">Visit our state-of-the-art learning centers across Dhaka</p>
+    <!-- Branch Locations Section with Google Maps -->
+<section class="section-padding" style="background: var(--light-bg);">
+    <div class="container">
+        <div class="text-center" data-aos="fade-up">
+            <h2 class="section-title">Our Branch Locations</h2>
+            <p class="section-subtitle">Visit our state-of-the-art learning centers across Dhaka</p>
+        </div>
+        
+        <div class="row g-4">
+            <!-- Dhanmondi Branch -->
+            <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
+                <div class="branch-card">
+                    <h4>Dhanmondi Branch</h4>
+                    <p>Road 27, House 45<br>Dhanmondi, Dhaka 1205</p>
+                    <a href="https://www.google.com/maps?q=23.7465,90.3756" 
+                       target="_blank" 
+                       class="btn-outline-cyan btn-sm">
+                        <i class="fas fa-map-marker-alt me-2"></i>Join free of offline classes
+                    </a>
+                </div>
             </div>
             
-            <div class="row g-4">
-                <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
-                    <div class="branch-card">
-                        <h4>Dhanmondi Branch</h4>
-                        <p>Road 27, House 45<br>Dhanmondi, Dhaka 1205</p>
-                        <a href="#" class="btn-outline-cyan btn-sm">Join Free Offline Class →</a>
-                    </div>
+            <!-- Mirpur Branch -->
+            <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
+                <div class="branch-card">
+                    <h4>Mirpur Branch</h4>
+                    <p>Road 10, Block C<br>Mirpur, Dhaka 1216</p>
+                    <a href="https://www.google.com/maps?q=23.8065,90.3650" 
+                       target="_blank" 
+                       class="btn-outline-cyan btn-sm">
+                        <i class="fas fa-map-marker-alt me-2"></i>Join free of offline classes
+                    </a>
                 </div>
-                
-                <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
-                    <div class="branch-card">
-                        <h4>Mirpur Branch</h4>
-                        <p>Road 10, Block C<br>Mirpur, Dhaka 1216</p>
-                        <a href="#" class="btn-outline-cyan btn-sm">Join Free Offline Class →</a>
-                    </div>
-                </div>
-                
-                <div class="col-md-4" data-aos="fade-up" data-aos-delay="300">
-                    <div class="branch-card">
-                        <h4>Uttara Branch</h4>
-                        <p>Sector 7, Road 15<br>Uttara, Dhaka 1230</p>
-                        <a href="#" class="btn-outline-cyan btn-sm">Join Free Offline Class →</a>
-                    </div>
+            </div>
+            
+            <!-- Uttara Branch -->
+            <div class="col-md-4" data-aos="fade-up" data-aos-delay="300">
+                <div class="branch-card">
+                    <h4>Uttara Branch</h4>
+                    <p>Sector 7, Road 15<br>Uttara, Dhaka 1230</p>
+                    <a href="https://www.google.com/maps?q=23.8765,90.3950" 
+                       target="_blank" 
+                       class="btn-outline-cyan btn-sm">
+                        <i class="fas fa-map-marker-alt me-2"></i>Join free of offline classes
+                    </a>
                 </div>
             </div>
         </div>
-    </section>
-
+    </div>
+</section>
     <!-- Why Choose Us Section -->
     <section class="section-padding" style="background: var(--navy); color: var(--white);">
         <div class="container">
