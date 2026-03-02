@@ -162,13 +162,13 @@ Security	Password Hashing, Prepared Statements, CSRF Protection
 
 Clone the repository:
 
-git clone https://github.com/your-username/coaching-center-management-system.git
+git clone https:https://github.com/Shuvo928/coaching-mgmt
 
 Import the database file into MySQL.
 
 Configure the database connection in:
 
-config/database.php
+includes/db.php
 
 Run the project on:
 
