@@ -349,10 +349,7 @@ if(isset($_POST['login'])) {
                     <i class="fas fa-sign-in-alt me-2"></i>Login
                 </button>
 
-                <div class="text-center">
-                    <p class="text-muted mb-0">Demo Credentials:</p>
-                    <small class="text-muted">Admin: admin / admin123</small>
-                </div>
+                
             </form>
 
             <div class="back-to-home">
@@ -408,11 +405,7 @@ if(isset($_POST['login'])) {
             }
         });
 
-        // Auto-fill admin credentials on page load (for demo)
-        window.onload = function() {
-            document.querySelector('input[name="username"]').value = 'admin';
-            document.querySelector('input[name="password"]').value = 'admin123';
-        };
+       
     </script>
 </body>
 </html>

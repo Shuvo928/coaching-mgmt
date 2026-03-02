@@ -237,6 +237,18 @@
 
         .hero-illustration {
             animation: float 6s ease-in-out infinite;
+            /* ensure the container sits above any background elements */
+            position: relative;
+            z-index: 1;
+        }
+
+        /* video inside hero can be styled independently */
+        .hero-illustration .hero-video {
+            width: 100%;
+            height: auto;
+            display: block;
+            /* ensure pointer events work on the video itself */
+            pointer-events: auto;
         }
 
         @keyframes float {
@@ -561,7 +573,7 @@
                         <span>2987</span>
                     </div>
                     <a href="admin/login.php" class="btn-outline-cyan me-2">Login</a>
-                    <a href="#" class="btn-cyan">Free Class</a>
+                    <a href="#" class="btn-cyan">Admission</a>
                 </div>
             </div>
         </div>
@@ -569,13 +581,13 @@
 
     <!-- Hero Section -->
     <section class="hero-section">
-        <div class="container">
+        <div class="container-fluid">
             <div class="row align-items-center">
-                <div class="col-lg-6" data-aos="fade-right">
+                <div class="col-lg-5" data-aos="fade-right">
                     
                     <h1 class="hero-title">
     Let learning be fun!<br>
-    <span class="sub-line">Complete preparation<br>for school in one place</span>
+    <span class="sub-line">Complete preparation<br>at your own pace</span>
 </h1>
                     
                     <div class="class-selector">
@@ -584,11 +596,11 @@
                         <div class="class-card">Class 10</div>
                     </div>
                     
-                    <a href="#" class="btn-cyan btn-lg">Join Free Class</a>
                 </div>
-                <div class="col-lg-6" data-aos="fade-left">
+                <div class="col-lg-7" data-aos="fade-left">
                     <div class="hero-illustration">
-                        <video class="img-fluid" autoplay loop muted playsinline>
+                        <!-- added controls and custom class for additional styling; video remains muted for autoplay support -->
+                        <video class="hero-video img-fluid" controls autoplay loop muted playsinline>
                             <source src="assets/videos/1422633-hd_1920_810_24fps.mp4" type="video/mp4">
                             Your browser does not support the video tag.
                         </video>
@@ -602,8 +614,8 @@
     <section class="section-padding">
         <div class="container">
             <div class="text-center" data-aos="fade-up">
-                <h2 class="section-title">Learn online at your own pace!</h2>
-                <p class="section-subtitle">Classes from the country's best teachers, recorded lectures, and uninterrupted practice are all online.</p>
+                <h2 class="section-title">Learn at your own convenience and pace!</h2>
+                <p class="section-subtitle">Access classes conducted by the country’s most experienced teachers, along with recorded lectures and uninterrupted practice facilities.</p>
             </div>
             
             <div class="row g-4 mt-4">
@@ -732,12 +744,13 @@
                 <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
                     <div class="program-card">
                         <div class="program-content">
-                            <h3>SSC 2026</h3>
+                            <h3>SSC Batch</h3>
                             <p>Complete Board Preparation with intensive revision and model tests</p>
                             <a href="#" class="program-btn">View Details →</a>
                         </div>
                         <div class="program-illustration">
-                            <img src="https://illustrations.popsy.co/cyan/student-with-notebook.svg" alt="SSC" height="150">
+                            <!-- use local upload instead of external illustration -->
+                            <img src="uploads/images.png" alt="SSC" height="150">
                         </div>
                     </div>
                 </div>
@@ -750,7 +763,7 @@
                             <a href="#" class="program-btn">View Details →</a>
                         </div>
                         <div class="program-illustration">
-                            <img src="https://illustrations.popsy.co/cyan/studying.svg" alt="Class 10" height="150">
+                            <img src="uploads/download.jpeg" alt="Class 10" height="150">
                         </div>
                     </div>
                 </div>
@@ -763,7 +776,7 @@
                             <a href="#" class="program-btn">View Details →</a>
                         </div>
                         <div class="program-illustration">
-                            <img src="https://illustrations.popsy.co/cyan/studying-at-desk.svg" alt="Class 9" height="150">
+                            <img src="uploads/1571659996.png" alt="Class 9" height="150">
                         </div>
                     </div>
                 </div>
@@ -1405,6 +1418,17 @@ function typeWriter(element, text, speed = 100) {
     element.innerHTML = '';
     function type() {
         if (i < text.length) {
+
+// toggle play/pause when user taps/clicks the hero video
+document.addEventListener('DOMContentLoaded', () => {
+    const heroVid = document.querySelector('.hero-illustration video');
+    if (heroVid) {
+        heroVid.addEventListener('click', () => {
+            if (heroVid.paused) heroVid.play();
+            else heroVid.pause();
+        });
+    }
+});
             element.innerHTML += text.charAt(i);
             i++;
             setTimeout(type, speed);

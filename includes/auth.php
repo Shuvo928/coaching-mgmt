@@ -20,6 +20,7 @@ function checkRole($allowed_roles = []) {
     }
 }
 
+
 // Get current user details
 function getCurrentUser($conn) {
     $user_id = $_SESSION['user_id'];
