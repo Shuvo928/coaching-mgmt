@@ -560,13 +560,13 @@
                         <a class="nav-link" href="class10.php">Class 10</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#">SSC Batch </a>
+                        <a class="nav-link" href="ssc.php">SSC Batch</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#">About</a>
+                        <a class="nav-link" href="about.php">About</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#">Contact</a>
+                        <a class="nav-link" href="contact.php">Contact</a>
                     </li>
                 </ul>
                 <div class="d-flex align-items-center">
