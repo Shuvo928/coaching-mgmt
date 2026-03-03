@@ -1,5 +1,5 @@
 <?php
-// class9.php - Class 9 Routine Page
+// class10.php - Class 10 Routine Page
 ?>
 
 <!DOCTYPE html>
@@ -126,7 +126,7 @@
 
 <div class="container">
 
-    <h1>📚 Class 9 (All Groups)</h1>
+    <h1>📚 Class 10 (All Groups)</h1>
     <p class="subtitle">Science | Humanities | Commerce</p>
 
     <div style="text-align: center; margin-bottom: 30px;">
