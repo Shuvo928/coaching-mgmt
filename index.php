@@ -552,10 +552,12 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav mx-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="#">Class 9</a>
+                        <a class="nav-link" href="class9.php">Class 9</a>
+                        
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#">Class 10</a>
+                        
+                        <a class="nav-link" href="class10.php">Class 10</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="#">SSC Batch </a>
@@ -592,8 +594,8 @@
                     
                     <div class="class-selector">
                         <div class="class-card">SSC Batch </div>
-                        <div class="class-card">Class 9</div>
-                        <div class="class-card">Class 10</div>
+                        <a class="class-card" href="class9.php">Class 9</a>
+                        <a class="class-card" href="class10.php">Class 10</a>
                     </div>
                     
                 </div>
@@ -628,7 +630,7 @@
                         <p class="text-secondary">Access high-quality recorded lectures anytime, anywhere with lifetime access.</p>
                     </div>
                 </div>
-                
+                    
                 <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
                     <div class="feature-card">
                         <div class="feature-icon">
