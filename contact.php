@@ -1,18 +1,5 @@
 <?php
-// contact.php - Contact Us Page
-
-// Handle form submission (optional)
-$message_sent = false;
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $name = $_POST['name'] ?? '';
-    $email = $_POST['email'] ?? '';
-    $phone = $_POST['phone'] ?? '';
-    $subject = $_POST['subject'] ?? '';
-    $message = $_POST['message'] ?? '';
-    
-    // Here you can add code to send email or save to database
-    $message_sent = true;
-}
+// contact.php - Contact Us Page with WhatsApp Integration
 ?>
 
 <!DOCTYPE html>
@@ -156,31 +143,69 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             gap: 15px;
         }
 
-        .submit-btn{
+        .submit-btn {
             background: #06B6D4;
             color: #000;
             padding: 15px 30px;
             border: none;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 18px;
             font-weight: bold;
             cursor: pointer;
             transition: 0.3s;
             width: 100%;
+            margin-top: 10px;
         }
 
-        .submit-btn:hover{
+        .submit-btn:hover {
             background: #38BDF8;
             transform: translateY(-2px);
         }
 
-        .success-message{
-            background: #059669;
+        .whatsapp-btn {
+            display: block;
+            background-color: #25D366;
             color: white;
-            padding: 15px;
+            padding: 15px 30px;
             border-radius: 8px;
-            margin-bottom: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+            width: 100%;
             text-align: center;
+            text-decoration: none;
+            margin-top: 15px;
+            box-sizing: border-box;
+        }
+
+        .whatsapp-btn:hover {
+            background-color: #128C7E;
+            transform: translateY(-2px);
+            color: white;
+        }
+
+        .float-wa {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background-color: #25D366;
+            color: white;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            text-align: center;
+            font-size: 30px;
+            line-height: 60px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: 0.3s;
+            z-index: 1000;
+        }
+
+        .float-wa:hover {
+            background-color: #128C7E;
+            transform: scale(1.1);
+            color: white;
         }
 
         .branch-map{
@@ -283,6 +308,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             font-size: 14px;
         }
 
+        .note {
+            color: #94A3B8;
+            font-size: 14px;
+            margin-top: 15px;
+            text-align: center;
+            font-style: italic;
+        }
+
         @media (max-width: 768px){
             .contact-grid{
                 grid-template-columns: 1fr;
@@ -298,17 +331,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 </head>
 <body>
 
+<!-- Floating WhatsApp Button -->
+<a href="https://wa.me/8801305421948?text=Hello%20Coaching%20Pro%2C%20I%20need%20information%20about%20your%20classes" 
+   class="float-wa" 
+   target="_blank">
+    <i class="fab fa-whatsapp"></i>
+</a>
+
 <div class="container">
 
     <h1>📞 Contact Coaching Pro</h1>
     <p class="subtitle">We're Here to Help • Get in Touch With Us</p>
-
-    <!-- Success Message -->
-    <?php if($message_sent): ?>
-    <div class="success-message">
-        ✅ Thank you for contacting us! We'll get back to you soon.
-    </div>
-    <?php endif; ?>
 
     <!-- Contact Grid -->
     <div class="contact-grid">
@@ -349,41 +382,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </div>
         </div>
 
-        <!-- Contact Form -->
+        <!-- Contact Form with WhatsApp -->
         <div class="contact-form">
             <h2>✉️ Send us a Message</h2>
             
-            <form method="POST" action="">
+            <form onsubmit="sendViaWhatsApp(event)">
                 <div class="form-row">
                     <div class="form-group">
-                        <input type="text" name="name" placeholder="Your Full Name *" required>
+                        <input type="text" id="name" placeholder="Your Full Name *" required>
                     </div>
                     <div class="form-group">
-                        <input type="email" name="email" placeholder="Your Email *" required>
+                        <input type="email" id="email" placeholder="Your Email *" required>
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group">
-                        <input type="tel" name="phone" placeholder="Your Phone Number">
+                        <input type="tel" id="phone" placeholder="Your Phone Number">
                     </div>
                     <div class="form-group">
-                        <select name="subject">
+                        <select id="subject" required>
                             <option value="">Select Subject</option>
-                            <option value="admission">Admission Inquiry</option>
-                            <option value="class">Class 9/10 Information</option>
-                            <option value="ssc">SSC Batch 2026</option>
-                            <option value="fees">Fees & Payment</option>
-                            <option value="other">Other</option>
+                            <option value="Admission">Admission Inquiry</option>
+                            <option value="Class 9/10">Class 9/10 Information</option>
+                            <option value="SSC Batch">SSC Batch 2026</option>
+                            <option value="Fees">Fees & Payment</option>
+                            <option value="Other">Other</option>
                         </select>
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <textarea name="message" rows="5" placeholder="Your Message *" required></textarea>
+                    <textarea id="message" rows="5" placeholder="Your Message *" required></textarea>
                 </div>
 
-                <button type="submit" class="submit-btn">📨 Send Message</button>
+                <button type="submit" class="submit-btn">📱 Send via WhatsApp</button>
+                <a href="https://wa.me/8801305421948?text=Hello%20Coaching%20Pro%2C%20I%20have%20a%20quick%20question" 
+                   class="whatsapp-btn" 
+                   target="_blank">
+                    📱 Quick Chat on WhatsApp
+                </a>
+                <div class="note">⚡ Clicking send will open WhatsApp. Just press send there!</div>
             </form>
         </div>
     </div>
@@ -431,7 +470,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         <div style="margin-bottom: 15px;">
             <h3 style="color: #06B6D4;">Q: How can I enroll in Class 9?</h3>
-            <p style="color: #94A3B8;">A: You can visit any of our branches or fill the contact form above. Our admission team will contact you within 24 hours.</p>
+            <p style="color: #94A3B8;">A: You can visit any of our branches or click the WhatsApp button above. Our team will contact you within 24 hours.</p>
         </div>
         
         <div style="margin-bottom: 15px;">
@@ -441,7 +480,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         <div style="margin-bottom: 15px;">
             <h3 style="color: #06B6D4;">Q: Is there a free trial class?</h3>
-            <p style="color: #94A3B8;">A: Yes! We offer 2 free trial classes. Click the "Free Class" button on our homepage.</p>
+            <p style="color: #94A3B8;">A: Yes! We offer 2 free trial classes. Click the WhatsApp button to schedule yours.</p>
         </div>
         
         <div>
@@ -472,6 +511,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 <footer>
     © <?php echo date("Y"); ?> Coaching Pro | All Rights Reserved
 </footer>
+
+<!-- JavaScript for WhatsApp Form -->
+<script>
+function sendViaWhatsApp(e) {
+    e.preventDefault();
+    
+    // Get values
+    const name = document.getElementById('name').value;
+    const email = document.getElementById('email').value;
+    const phone = document.getElementById('phone').value;
+    const subject = document.getElementById('subject').value;
+    const message = document.getElementById('message').value;
+    
+    // Format WhatsApp message
+    const whatsappMsg = 
+        `*New Contact from Coaching Pro*%0A%0A` +
+        `*Name:* ${name}%0A` +
+        `*Email:* ${email}%0A` +
+        `*Phone:* ${phone}%0A` +
+        `*Subject:* ${subject}%0A` +
+        `*Message:* ${message}`;
+    
+    // Owner's WhatsApp (with Bangladesh code)
+    const ownerNumber = "8801305421948";
+    
+    // Open WhatsApp
+    window.open(`https://wa.me/${ownerNumber}?text=${whatsappMsg}`, '_blank');
+}
+</script>
 
 <!-- Font Awesome for icons -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">

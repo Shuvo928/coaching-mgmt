@@ -47,12 +47,24 @@ if(isset($_POST['submit_admission'])) {
         $address = mysqli_real_escape_string($conn, $_POST['address']);
         $program = mysqli_real_escape_string($conn, $_POST['program']);
         $group = mysqli_real_escape_string($conn, $_POST['group']);
+        
+        // Get monthly fee based on program
+        $monthly_fee = 0;
+        if($program == 'Class 9') {
+            $monthly_fee = 825;
+        } elseif($program == 'Class 10') {
+            $monthly_fee = 978;
+        } elseif($program == 'SSC Batch') {
+            $monthly_fee = 1150;
+        }
+        
         $transaction_id = mysqli_real_escape_string($conn, $_POST['transaction_id']);
         $payment_method = mysqli_real_escape_string($conn, $_POST['payment_method']);
+        $application_fee = 500;
         
         // Insert into database
-        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, transaction_id, payment_method, application_fee, status, created_at) 
-                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', '$transaction_id', '$payment_method', 500, 'Pending', NOW())";
+        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, monthly_fee, transaction_id, payment_method, application_fee, status, created_at) 
+                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', $monthly_fee, '$transaction_id', '$payment_method', $application_fee, 'Pending', NOW())";
         
         if(mysqli_query($conn, $query)) {
             $application_id = mysqli_insert_id($conn);
@@ -67,6 +79,13 @@ if(isset($_POST['submit_admission'])) {
 
 // Application fee
 $application_fee = 500;
+
+// Fee structure
+$fees = [
+    'Class 9' => 825,
+    'Class 10' => 978,
+    'SSC Batch' => 1150
+];
 ?>
 
 <!DOCTYPE html>
@@ -122,9 +141,163 @@ $application_fee = 500;
         }
 
         .admission-container {
-            max-width: 900px;
+            max-width: 1000px;
             margin: 50px auto;
             padding: 0 20px;
+        }
+
+        /* Program Selection Cards */
+        .program-cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .program-card {
+            background: var(--white);
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            cursor: pointer;
+            transition: var(--transition);
+            border: 3px solid transparent;
+            box-shadow: var(--box-shadow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .program-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .program-card.selected {
+            border-color: var(--cyan);
+            background: linear-gradient(135deg, #ffffff, #ecfeff);
+        }
+
+        .program-icon {
+            width: 80px;
+            height: 80px;
+            background: var(--light-bg);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            font-size: 32px;
+            color: var(--cyan);
+        }
+
+        .program-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--navy);
+            margin-bottom: 10px;
+        }
+
+        .program-fee {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--cyan);
+            margin-bottom: 5px;
+        }
+
+        .program-fee small {
+            font-size: 0.8rem;
+            color: #64748b;
+            font-weight: normal;
+        }
+
+        .program-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--cyan);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        /* Group Selection */
+        .group-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .group-btn {
+            background: var(--white);
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .group-btn:hover {
+            border-color: var(--cyan);
+        }
+
+        .group-btn.selected {
+            background: var(--cyan);
+            color: white;
+            border-color: var(--cyan);
+        }
+
+        .group-btn.selected i {
+            color: white;
+        }
+
+        .group-btn i {
+            font-size: 24px;
+            color: var(--cyan);
+            margin-bottom: 5px;
+        }
+
+        .group-btn.science i { color: #2563eb; }
+        .group-btn.humanities i { color: #9333ea; }
+        .group-btn.commerce i { color: #16a34a; }
+
+        .group-btn.selected.science i,
+        .group-btn.selected.humanities i,
+        .group-btn.selected.commerce i {
+            color: white;
+        }
+
+        /* Fee Info Card */
+        .fee-info-card {
+            background: linear-gradient(135deg, var(--navy), #1e293b);
+            color: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin: 30px 0;
+        }
+
+        .fee-details {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+        }
+
+        .fee-item {
+            text-align: center;
+        }
+
+        .fee-item .label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .fee-item .amount {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--cyan);
         }
 
         .admission-card {
@@ -133,6 +306,7 @@ $application_fee = 500;
             box-shadow: 0 20px 40px rgba(0,0,0,0.15);
             overflow: hidden;
             animation: slideUp 0.5s ease;
+            margin-top: 30px;
         }
 
         @keyframes slideUp {
@@ -167,11 +341,6 @@ $application_fee = 500;
         .admission-header h2 {
             font-weight: 700;
             margin-bottom: 10px;
-        }
-
-        .admission-header p {
-            opacity: 0.9;
-            margin: 0;
         }
 
         .fee-badge {
@@ -264,11 +433,6 @@ $application_fee = 500;
             margin-bottom: 20px;
         }
 
-        .payment-info h4 {
-            color: white;
-            margin-bottom: 15px;
-        }
-
         .payment-methods {
             display: flex;
             gap: 15px;
@@ -306,11 +470,6 @@ $application_fee = 500;
             margin-bottom: 10px;
         }
 
-        .payment-method-card .method-name {
-            font-weight: 600;
-            color: var(--text-dark);
-        }
-
         .transaction-field {
             background: #f8fafc;
             padding: 20px;
@@ -323,11 +482,6 @@ $application_fee = 500;
             border-radius: 10px;
             padding: 20px;
             margin: 30px 0;
-        }
-
-        .form-check-input:checked {
-            background-color: var(--cyan);
-            border-color: var(--cyan);
         }
 
         .btn-submit {
@@ -371,22 +525,28 @@ $application_fee = 500;
             border: none;
         }
 
-        .alert-success {
-            background: #d1fae5;
-            color: #065f46;
+        .selected-fee {
+            background: #ecfeff;
+            border: 2px solid var(--cyan);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: center;
         }
 
-        .alert-danger {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-
-        .timer {
-            font-size: 0.9rem;
-            color: #ef4444;
+        .selected-fee .amount {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--cyan);
         }
 
         @media (max-width: 768px) {
+            .program-cards,
+            .group-buttons,
+            .fee-details {
+                grid-template-columns: 1fr;
+            }
+            
             .admission-body {
                 padding: 20px;
             }
@@ -444,10 +604,75 @@ $application_fee = 500;
             </div>
         <?php endif; ?>
 
-        <div class="admission-card">
+        <!-- Program Selection Cards -->
+        <div class="program-cards" data-aos="fade-up">
+            <!-- Class 9 Card -->
+            <div class="program-card" onclick="selectProgram('Class 9', 825)">
+                <div class="program-icon">
+                    <i class="fas fa-graduation-cap"></i>
+                </div>
+                <h3 class="program-title">Class 9</h3>
+                <div class="program-fee">৳825 <small>/month</small></div>
+                <p class="text-muted">Science • Humanities • Commerce</p>
+                <div class="program-badge">Popular</div>
+            </div>
+
+            <!-- Class 10 Card -->
+            <div class="program-card" onclick="selectProgram('Class 10', 978)">
+                <div class="program-icon">
+                    <i class="fas fa-user-graduate"></i>
+                </div>
+                <h3 class="program-title">Class 10</h3>
+                <div class="program-fee">৳978 <small>/month</small></div>
+                <p class="text-muted">Science • Humanities • Commerce</p>
+            </div>
+
+            <!-- SSC Batch Card -->
+            <div class="program-card" onclick="selectProgram('SSC Batch', 1150)">
+                <div class="program-icon">
+                    <i class="fas fa-trophy"></i>
+                </div>
+                <h3 class="program-title">SSC Batch 2026</h3>
+                <div class="program-fee">৳1150 <small>/month</small></div>
+                <p class="text-muted">Science • Humanities • Commerce</p>
+                <div class="program-badge">Special</div>
+            </div>
+        </div>
+
+        <!-- Group Selection Buttons (Initially Hidden) -->
+        <div id="groupSelection" style="display: none;" data-aos="fade-up">
+            <h3 class="section-title"><i class="fas fa-users me-2"></i>Select Your Group</h3>
+            <div class="group-buttons">
+                <div class="group-btn science" onclick="selectGroup('Science')">
+                    <i class="fas fa-flask fa-2x"></i>
+                    <h5>Science</h5>
+                    <small>Physics, Chemistry, Biology, Higher Math</small>
+                </div>
+                <div class="group-btn humanities" onclick="selectGroup('Humanities')">
+                    <i class="fas fa-landmark fa-2x"></i>
+                    <h5>Humanities</h5>
+                    <small>History, Geography, Civics, Economics</small>
+                </div>
+                <div class="group-btn commerce" onclick="selectGroup('Commerce')">
+                    <i class="fas fa-chart-line fa-2x"></i>
+                    <h5>Commerce</h5>
+                    <small>Accounting, Business Studies, Finance</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Selected Fee Display -->
+        <div id="selectedFeeDisplay" class="selected-fee" style="display: none;">
+            <p class="mb-0">Selected Program: <span id="selectedProgramName"></span></p>
+            <p class="mb-0">Monthly Fee: <span class="amount" id="selectedFeeAmount">৳0</span></p>
+            <small class="text-muted">Application fee: ৳500 (one time)</small>
+        </div>
+
+        <!-- Admission Form -->
+        <div class="admission-card" id="admissionFormCard" style="display: none;">
             <div class="admission-header">
-                <h2><i class="fas fa-door-open me-2"></i>Online Admission Portal</h2>
-                <p>Join CoachingPro for your academic excellence journey</p>
+                <h2><i class="fas fa-door-open me-2"></i>Complete Your Admission</h2>
+                <p>Fill the form below to secure your seat</p>
                 <div class="fee-badge">
                     <i class="fas fa-tag me-2"></i>Application Fee: ৳<?php echo $application_fee; ?>
                 </div>
@@ -455,6 +680,10 @@ $application_fee = 500;
 
             <div class="admission-body">
                 <form method="POST" action="" id="admissionForm" onsubmit="return validateForm()">
+                    <input type="hidden" name="program" id="selectedProgram">
+                    <input type="hidden" name="group" id="selectedGroup">
+                    <input type="hidden" name="monthly_fee" id="monthlyFee">
+
                     <!-- Personal Information Section -->
                     <h3 class="section-title"><i class="fas fa-user me-2"></i>Personal Information</h3>
                     
@@ -517,43 +746,23 @@ $application_fee = 500;
                         </div>
                     </div>
 
-                    <!-- Program Selection -->
-                    <h3 class="section-title"><i class="fas fa-graduation-cap me-2"></i>Program Selection</h3>
-                    
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6" data-aos="fade-right">
-                            <label class="form-label">Select Program *</label>
-                            <select class="form-select" name="program" id="program" required onchange="updateGroups()">
-                                <option value="">Choose Program</option>
-                                <option value="Class 9">Class 9</option>
-                                <option value="Class 10">Class 10</option>
-                                <option value="SSC Batch">SSC Batch</option>
-                            </select>
-                        </div>
-                        
-                        <div class="col-md-6" data-aos="fade-left">
-                            <label class="form-label">Select Group *</label>
-                            <select class="form-select" name="group" id="group" required>
-                                <option value="">First select program</option>
-                            </select>
-                        </div>
-                    </div>
-
                     <!-- Payment Information -->
                     <h3 class="section-title"><i class="fas fa-credit-card me-2"></i>Payment Information</h3>
                     
                     <div class="payment-info" data-aos="zoom-in">
-                        <h4><i class="fas fa-info-circle me-2"></i>Application Fee Details</h4>
+                        <h4><i class="fas fa-info-circle me-2"></i>Fee Summary</h4>
                         <div class="row">
-                            <div class="col-md-6">
+                            <div class="col-md-4">
+                                <p class="mb-2">Monthly Fee:</p>
                                 <p class="mb-2">Application Fee:</p>
                                 <p class="mb-2">VAT (5%):</p>
-                                <p class="mb-2"><strong>Total Amount:</strong></p>
+                                <p class="mb-2"><strong>Total Payable:</strong></p>
                             </div>
-                            <div class="col-md-6 text-end">
-                                <p class="mb-2">৳ <?php echo number_format($application_fee - ($application_fee * 0.05), 2); ?></p>
-                                <p class="mb-2">৳ <?php echo number_format($application_fee * 0.05, 2); ?></p>
-                                <p class="mb-2"><strong>৳ <?php echo number_format($application_fee, 2); ?></strong></p>
+                            <div class="col-md-8 text-end">
+                                <p class="mb-2" id="displayMonthlyFee">৳ 0</p>
+                                <p class="mb-2">৳ <?php echo number_format($application_fee, 2); ?></p>
+                                <p class="mb-2" id="displayVat">৳ <?php echo number_format($application_fee * 0.05, 2); ?></p>
+                                <p class="mb-2"><strong id="displayTotal">৳ <?php echo number_format($application_fee + ($application_fee * 0.05), 2); ?></strong></p>
                             </div>
                         </div>
                     </div>
@@ -563,21 +772,21 @@ $application_fee = 500;
                     <div class="payment-methods">
                         <div class="payment-method" data-aos="fade-up" data-aos-delay="100">
                             <div class="payment-method-card" onclick="selectPaymentMethod('bkash')">
-                                <img src="https://seeklogo.com/images/B/bkash-logo-4D6434A1D9-seeklogo.com.png" alt="bKash">
+                                <img src="uploads/download (1).png" alt="bKash">
                                 <div class="method-name">bKash</div>
                             </div>
                         </div>
                         
                         <div class="payment-method" data-aos="fade-up" data-aos-delay="200">
                             <div class="payment-method-card" onclick="selectPaymentMethod('nagad')">
-                                <img src="https://seeklogo.com/images/N/nagad-logo-4A9E1C3E2F-seeklogo.com.png" alt="Nagad">
+                                <img src="uploads/download (2).png" alt="Nagad">
                                 <div class="method-name">Nagad</div>
                             </div>
                         </div>
                         
                         <div class="payment-method" data-aos="fade-up" data-aos-delay="300">
                             <div class="payment-method-card" onclick="selectPaymentMethod('rocket')">
-                                <img src="https://seeklogo.com/images/R/rocket-dutch-bangla-bank-logo-5B6B7C8D9E-seeklogo.com.png" alt="Rocket">
+                                <img src="uploads/download (3).png" alt="Rocket">
                                 <div class="method-name">Rocket</div>
                             </div>
                         </div>
@@ -623,7 +832,7 @@ $application_fee = 500;
                             </button>
                         </div>
                         <div class="col-md-6" data-aos="fade-left">
-                            <button type="reset" class="btn-reset" onclick="resetForm()">
+                            <button type="button" class="btn-reset" onclick="resetForm()">
                                 <i class="fas fa-undo me-2"></i>Reset Form
                             </button>
                         </div>
@@ -645,9 +854,80 @@ $application_fee = 500;
             once: true
         });
 
+        // Selected program and fee
+        let selectedProgram = '';
+        let selectedFee = 0;
+        let selectedGroup = '';
+
+        // Select Program
+        function selectProgram(program, fee) {
+            // Remove selection from all cards
+            document.querySelectorAll('.program-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            
+            // Add selection to clicked card
+            event.currentTarget.classList.add('selected');
+            
+            // Store selected values
+            selectedProgram = program;
+            selectedFee = fee;
+            
+            // Show group selection
+            document.getElementById('groupSelection').style.display = 'block';
+            
+            // Scroll to group selection
+            document.getElementById('groupSelection').scrollIntoView({ behavior: 'smooth' });
+            
+            // Update hidden inputs
+            document.getElementById('selectedProgram').value = program;
+            document.getElementById('monthlyFee').value = fee;
+            
+            // Update fee display
+            document.getElementById('selectedProgramName').textContent = program;
+            document.getElementById('selectedFeeAmount').textContent = '৳' + fee;
+            document.getElementById('selectedFeeDisplay').style.display = 'block';
+            
+            // Update payment info
+            updatePaymentInfo(fee);
+        }
+
+        // Select Group
+        function selectGroup(group) {
+            // Remove selection from all group buttons
+            document.querySelectorAll('.group-btn').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            
+            // Add selection to clicked button
+            event.currentTarget.classList.add('selected');
+            
+            // Store selected group
+            selectedGroup = group;
+            document.getElementById('selectedGroup').value = group;
+            
+            // Show admission form
+            document.getElementById('admissionFormCard').style.display = 'block';
+            
+            // Scroll to form
+            document.getElementById('admissionFormCard').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Update payment info based on selected program
+        function updatePaymentInfo(fee) {
+            const monthlyFee = fee;
+            const appFee = <?php echo $application_fee; ?>;
+            const vat = appFee * 0.05;
+            const total = appFee + vat;
+            
+            document.getElementById('displayMonthlyFee').textContent = '৳ ' + monthlyFee.toFixed(2);
+            document.getElementById('displayVat').textContent = '৳ ' + vat.toFixed(2);
+            document.getElementById('displayTotal').innerHTML = '<strong>৳ ' + (monthlyFee + total).toFixed(2) + '</strong>';
+        }
+
         // OTP Variables
         let otpTimer;
-        let timeLeft = 300; // 5 minutes in seconds
+        let timeLeft = 300;
 
         // Send OTP
         function sendOTP() {
@@ -659,7 +939,6 @@ $application_fee = 500;
                 return;
             }
             
-            // Disable send button and show loading
             const sendBtn = document.getElementById('sendOtpBtn');
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
@@ -749,24 +1028,6 @@ $application_fee = 500;
             }, 1000);
         }
 
-        // Update groups based on program selection
-        function updateGroups() {
-            const program = document.getElementById('program').value;
-            const groupSelect = document.getElementById('group');
-            
-            groupSelect.innerHTML = '<option value="">Select Group</option>';
-            
-            if(program === 'SSC Batch') {
-                groupSelect.innerHTML += `
-                    <option value="Science">Science</option>
-                    <option value="Humanities">Humanities</option>
-                    <option value="Commerce">Commerce</option>
-                `;
-            } else {
-                groupSelect.innerHTML += '<option value="General">General</option>';
-            }
-        }
-
         // Select payment method
         function selectPaymentMethod(method) {
             document.querySelectorAll('.payment-method-card').forEach(card => {
@@ -790,7 +1051,17 @@ $application_fee = 500;
 
         // Form validation
         function validateForm() {
-            if(!document.getElementById('otp_verified') && !document.querySelector('.otp-verified')) {
+            if(!selectedProgram) {
+                alert('Please select a program first');
+                return false;
+            }
+            
+            if(!selectedGroup) {
+                alert('Please select your group');
+                return false;
+            }
+            
+            if(!document.querySelector('.otp-verified')) {
                 alert('Please verify your mobile number first');
                 return false;
             }
@@ -816,16 +1087,7 @@ $application_fee = 500;
         // Reset form
         function resetForm() {
             if(confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
-                document.getElementById('admissionForm').reset();
-                document.getElementById('otpSection').classList.remove('otp-verified');
-                document.getElementById('otpVerification').style.display = 'none';
-                document.getElementById('verifiedBadge').style.display = 'none';
-                document.getElementById('mobile').readOnly = false;
-                document.getElementById('transactionField').style.display = 'none';
-                document.querySelectorAll('.payment-method-card').forEach(card => {
-                    card.classList.remove('selected');
-                });
-                clearInterval(otpTimer);
+                location.reload();
             }
         }
     </script>

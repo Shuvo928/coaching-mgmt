@@ -575,7 +575,7 @@
                         <span>2987</span>
                     </div>
                     <a href="admin/login.php" class="btn-outline-cyan me-2">Login</a>
-                    <a href="#" class="btn-cyan">Admission</a>
+                    <a href="admission.php" class="btn-cyan">Admission</a>
                 </div>
             </div>
         </div>
@@ -593,7 +593,7 @@
 </h1>
                     
                     <div class="class-selector">
-                        <div class="class-card">SSC Batch </div>
+                        <a class="class-card" href="ssc.php">SSC batch</a>
                         <a class="class-card" href="class9.php">Class 9</a>
                         <a class="class-card" href="class10.php">Class 10</a>
                     </div>
