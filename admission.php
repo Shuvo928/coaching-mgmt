@@ -15,10 +15,33 @@ if(isset($_POST['send_otp'])) {
     $_SESSION['otp_time'] = time();
     
     // Here you would integrate SMS API to send OTP
-    // For demo, we'll just show the OTP
-    $response = ['success' => true, 'message' => 'OTP sent successfully', 'otp' => $otp];
-    echo json_encode($response);
-    exit();
+   $api_key = "K6uCeGByYLJRtIIZRzQ";
+$mobile = "88" . $mobile; // convert 017xxxx to 88017xxxx
+$message = "Your CoachingPro OTP is: " . $otp;
+
+$url = "http://bulksmsbd.net/api/smsapi";
+
+$data = [
+    "api_key" => $api_key,
+    "type" => "text",
+    "number" => $mobile,
+    "senderid" => "8809601000500",
+    "message" => $message
+];
+
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL,$url);
+curl_setopt($ch, CURLOPT_POST,1);
+curl_setopt($ch, CURLOPT_POSTFIELDS,$data);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER,true);
+
+$response_api = curl_exec($ch);
+curl_close($ch);
+
+$response = ['success' => true, 'message' => 'OTP sent successfully'];
+echo json_encode($response);
+exit();
+    
 }
 
 // Verify OTP
@@ -953,7 +976,7 @@ $fees = [
                 dataType: 'json',
                 success: function(response) {
                     if(response.success) {
-                        alert('OTP sent successfully! For demo, OTP is: ' + response.otp);
+                        alert('OTP sent to your phone');
                         document.getElementById('otpVerification').style.display = 'block';
                         startTimer(300);
                     } else {
@@ -1039,11 +1062,11 @@ $fees = [
             
             const paymentNumber = document.getElementById('paymentNumber');
             if(method === 'bkash') {
-                paymentNumber.innerHTML = 'bKash: 019XXXXXXXX (Merchant)';
+                paymentNumber.innerHTML = 'bKash: 01305421948 (personal)';
             } else if(method === 'nagad') {
-                paymentNumber.innerHTML = 'Nagad: 019XXXXXXXX (Merchant)';
+                paymentNumber.innerHTML = 'Nagad: 01305421948 (personal)';
             } else if(method === 'rocket') {
-                paymentNumber.innerHTML = 'Rocket: 019XXXXXXXX (Merchant)';
+                paymentNumber.innerHTML = 'Rocket: 01305421948 (personal)';
             }
             
             document.getElementById('transactionField').style.display = 'block';

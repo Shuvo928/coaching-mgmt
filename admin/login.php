@@ -11,6 +11,64 @@ if(isset($_SESSION['admin_id'])) {
     exit();
 }
 
+// Handle Teacher Registration
+if(isset($_POST['register'])) {
+    $username = mysqli_real_escape_string($conn, $_POST['regUsername']);
+    $password = $_POST['regPassword'];
+    $confirm_password = $_POST['regConfirmPassword'];
+    
+    if(empty($username) || empty($password) || empty($confirm_password)) {
+        $error = "Please fill in all fields";
+    } elseif($password != $confirm_password) {
+        $error = "Passwords do not match!";
+    } elseif(strlen($password) < 6) {
+        $error = "Password must be at least 6 characters long!";
+    } else {
+        // Check if username already exists
+        $check_query = "SELECT id FROM users WHERE username = '$username'";
+        $check_result = mysqli_query($conn, $check_query);
+        
+        if(mysqli_num_rows($check_result) > 0) {
+            $error = "Username already exists!";
+        } else {
+            // Hash password
+            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+            
+            // Create user account
+            $insert_user = "INSERT INTO users (username, password, email, role, status) 
+                           VALUES ('$username', '$hashed_password', '$username@coaching.local', 'teacher', 1)";
+            
+            if(mysqli_query($conn, $insert_user)) {
+                $user_id = mysqli_insert_id($conn);
+                
+                // Generate teacher ID
+                $prefix = 'TCH';
+                $year = date('Y');
+                $id_query = "SELECT COUNT(*) as total FROM teachers WHERE teacher_id LIKE '$prefix$year%'";
+                $id_result = mysqli_query($conn, $id_query);
+                $id_row = mysqli_fetch_assoc($id_result);
+                $count = $id_row['total'] + 1;
+                $teacher_id = $prefix . $year . str_pad($count, 3, '0', STR_PAD_LEFT);
+                
+                // Extract first name from username (remove 'T' prefix)
+                $first_name = substr($username, 1);
+                
+                // Create teacher record
+                $insert_teacher = "INSERT INTO teachers (user_id, teacher_id, first_name, status) 
+                                  VALUES ($user_id, '$teacher_id', '$first_name', 1)";
+                
+                if(mysqli_query($conn, $insert_teacher)) {
+                    $success = "Registration successful! You can now login with your username and password.";
+                } else {
+                    $error = "Error creating teacher record: " . mysqli_error($conn);
+                }
+            } else {
+                $error = "Error creating user account: " . mysqli_error($conn);
+            }
+        }
+    }
+}
+
 // Handle Login Form Submission
 if(isset($_POST['login'])) {
     $username = mysqli_real_escape_string($conn, $_POST['username']);
@@ -52,7 +110,7 @@ if(isset($_POST['login'])) {
                 if($user['role'] == 'admin') {
                     header("Location: dashboard.php");
                 } elseif($user['role'] == 'teacher') {
-                    header("Location: ../teacher/dashboard.php");
+                    header("Location: teacher-dashboard.php");
                 } elseif($user['role'] == 'student') {
                     header("Location: ../student/dashboard.php");
                 }
@@ -280,6 +338,59 @@ if(isset($_POST['login'])) {
             margin-bottom: 5px;
         }
 
+        /* Registration Buttons */
+        .reg-buttons {
+            display: none;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .reg-buttons.show {
+            display: flex;
+        }
+
+        .btn-reg {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            background: white;
+            color: #666;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .btn-reg i {
+            margin-right: 6px;
+            color: #667eea;
+        }
+
+        .btn-reg:hover {
+            border-color: #667eea;
+            background: #f5f5ff;
+        }
+
+        .btn-reg.active {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-color: transparent;
+        }
+
+        .btn-reg.active i {
+            color: white;
+        }
+
+        /* Form Sections */
+        .form-section {
+            display: none;
+        }
+
+        .form-section.show {
+            display: block;
+        }
+
         @media (max-width: 480px) {
             .login-header {
                 padding: 30px;
@@ -330,7 +441,18 @@ if(isset($_POST['login'])) {
                 </div>
             <?php endif; ?>
 
-            <form method="POST" action="" id="loginForm">
+            <!-- Registration Buttons (Hidden by default) -->
+            <div id="regButtons" class="reg-buttons">
+                <button type="button" class="btn-reg active" onclick="showLoginForm()">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </button>
+                <button type="button" class="btn-reg" onclick="showRegisterForm()">
+                    <i class="fas fa-user-plus"></i> Register
+                </button>
+            </div>
+
+            <!-- Login Form -->
+            <form method="POST" action="" id="loginForm" class="form-section show">
                 <div class="form-group">
                     <i class="fas fa-user"></i>
                     <input type="text" class="form-control" name="username" placeholder="Username" required>
@@ -348,8 +470,28 @@ if(isset($_POST['login'])) {
                 <button type="submit" name="login" class="btn-login">
                     <i class="fas fa-sign-in-alt me-2"></i>Login
                 </button>
+            </form>
 
-                
+            <!-- Registration Form (Hidden by default) -->
+            <form method="POST" action="" id="registerForm" class="form-section">
+                <div class="form-group">
+                    <i class="fas fa-user"></i>
+                    <input type="text" class="form-control" id="regUsername" name="regUsername" placeholder="Username" required>
+                </div>
+
+                <div class="form-group">
+                    <i class="fas fa-lock"></i>
+                    <input type="password" class="form-control" id="regPassword" name="regPassword" placeholder="Password" required>
+                </div>
+
+                <div class="form-group">
+                    <i class="fas fa-lock"></i>
+                    <input type="password" class="form-control" id="regConfirmPassword" name="regConfirmPassword" placeholder="Confirm Password" required>
+                </div>
+
+                <button type="submit" name="register" class="btn-login">
+                    <i class="fas fa-user-plus me-2"></i>Register
+                </button>
             </form>
 
             <div class="back-to-home">
@@ -364,8 +506,12 @@ if(isset($_POST['login'])) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
-        // Role selector functionality (for demo)
+        let currentRole = 'admin';
+
+        // Role selector functionality
         function setRole(role) {
+            currentRole = role;
+            
             // Remove active class from all buttons
             document.querySelectorAll('.role-btn').forEach(btn => {
                 btn.classList.remove('active');
@@ -374,25 +520,81 @@ if(isset($_POST['login'])) {
             // Add active class to clicked button
             event.target.closest('.role-btn').classList.add('active');
             
-            // Set demo credentials based on role
-            const usernameInput = document.querySelector('input[name="username"]');
-            const passwordInput = document.querySelector('input[name="password"]');
-            
-            switch(role) {
-                case 'admin':
-                    usernameInput.value = 'admin';
-                    passwordInput.value = 'admin123';
-                    break;
-                case 'teacher':
-                    usernameInput.value = 'teacher';
-                    passwordInput.value = 'teacher123';
-                    break;
-                case 'student':
-                    usernameInput.value = 'student';
-                    passwordInput.value = 'student123';
-                    break;
+            // Show/hide registration buttons based on role
+            const regButtons = document.getElementById('regButtons');
+            if(role === 'teacher' || role === 'student') {
+                regButtons.classList.add('show');
+                showLoginForm(); // Default to login form
+            } else {
+                regButtons.classList.remove('show');
+                showLoginForm(); // Show login form for admin
             }
         }
+
+        // Show login form
+        function showLoginForm() {
+            document.getElementById('loginForm').classList.add('show');
+            document.getElementById('registerForm').classList.remove('show');
+            
+            // Update button state
+            document.querySelectorAll('.btn-reg').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelectorAll('.btn-reg')[0].classList.add('active');
+        }
+
+        // Show register form
+        function showRegisterForm() {
+            document.getElementById('loginForm').classList.remove('show');
+            document.getElementById('registerForm').classList.add('show');
+            
+            // Clear registration username field when showing register form
+            document.getElementById('regUsername').value = '';
+            
+            // Update button state
+            document.querySelectorAll('.btn-reg').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelectorAll('.btn-reg')[1].classList.add('active');
+        }
+
+        // Auto-prefix "T" for teacher registration
+        document.getElementById('regUsername').addEventListener('input', function() {
+            if(currentRole === 'teacher') {
+                let value = this.value;
+                // Remove "T" prefix if it exists
+                if(value.startsWith('T')) {
+                    value = value.substring(1);
+                }
+                // Re-add "T" prefix
+                this.value = 'T' + value;
+            }
+        });
+
+        // Form validation for registration
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            const username = document.getElementById('regUsername').value;
+            const password = document.getElementById('regPassword').value;
+            const confirmPassword = document.getElementById('regConfirmPassword').value;
+            
+            if(username.trim() === '' || password.trim() === '' || confirmPassword.trim() === '') {
+                e.preventDefault();
+                alert('Please fill in all fields');
+                return false;
+            }
+            
+            if(password !== confirmPassword) {
+                e.preventDefault();
+                alert('Passwords do not match!');
+                return false;
+            }
+            
+            if(password.length < 6) {
+                e.preventDefault();
+                alert('Password must be at least 6 characters long!');
+                return false;
+            }
+        });
 
         // Form validation
         document.getElementById('loginForm').addEventListener('submit', function(e) {
