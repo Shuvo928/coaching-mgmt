@@ -20,7 +20,7 @@ if(isset($_POST['submit'])) {
     $email = mysqli_real_escape_string($conn, $_POST['email']);
     $phone = mysqli_real_escape_string($conn, $_POST['phone']);
     $qualification = mysqli_real_escape_string($conn, $_POST['qualification']);
-    $dob = $_POST['dob'];
+    $interested_subjects = mysqli_real_escape_string($conn, $_POST['interested_subjects']);
     $joining_date = $_POST['joining_date'];
     $address = mysqli_real_escape_string($conn, $_POST['address']);
     $username = mysqli_real_escape_string($conn, $_POST['username']);
@@ -66,9 +66,9 @@ if(isset($_POST['submit'])) {
             
             // Insert into teachers table
             $teacher_query = "INSERT INTO teachers (user_id, teacher_id, first_name, last_name, email, 
-                              phone, qualification, dob, joining_date, address, photo, status) 
+                              phone, qualification, interested_subjects, joining_date, address, photo, status) 
                               VALUES ($user_id, '$teacher_unique_id', '$first_name', '$last_name', 
-                              '$email', '$phone', '$qualification', '$dob', '$joining_date', 
+                              '$email', '$phone', '$qualification', '$interested_subjects', '$joining_date', 
                               '$address', '$photo', 1)";
             
             if(!mysqli_query($conn, $teacher_query)) {
@@ -106,7 +106,7 @@ if(isset($_POST['submit'])) {
                          email = '$email',
                          phone = '$phone',
                          qualification = '$qualification',
-                         dob = '$dob',
+                         interested_subjects = '$interested_subjects',
                          joining_date = '$joining_date',
                          address = '$address',
                          photo = '$photo'

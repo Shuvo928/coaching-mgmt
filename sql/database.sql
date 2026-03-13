@@ -49,6 +49,7 @@ CREATE TABLE teachers (
     email VARCHAR(100) UNIQUE,
     phone VARCHAR(15),
     qualification TEXT,
+    interested_subjects TEXT,
     address TEXT,
     photo VARCHAR(255),
     joining_date DATE,

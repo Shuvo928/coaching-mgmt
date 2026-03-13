@@ -39,16 +39,16 @@ if(isset($_POST['id'])) {
             <td><?php echo $teacher['qualification']; ?></td>
         </tr>
         <tr>
+            <th>Interested Subjects</th>
+            <td><?php echo $teacher['interested_subjects'] ?? 'N/A'; ?></td>
+        </tr>
+        <tr>
             <th>Phone</th>
             <td><?php echo $teacher['phone']; ?></td>
         </tr>
         <tr>
             <th>Email</th>
             <td><?php echo $teacher['email'] ?? 'N/A'; ?></td>
-        </tr>
-        <tr>
-            <th>Date of Birth</th>
-            <td><?php echo $teacher['dob'] ? date('d-m-Y', strtotime($teacher['dob'])) : 'N/A'; ?></td>
         </tr>
         <tr>
             <th>Joining Date</th>

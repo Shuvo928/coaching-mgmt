@@ -665,15 +665,16 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                                    placeholder="e.g., M.Sc in Mathematics, B.Ed" required>
                         </div>
 
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Date of Birth</label>
-                                <input type="date" class="form-control" name="dob" id="dob">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Joining Date *</label>
-                                <input type="date" class="form-control" name="joining_date" id="joining_date" required>
-                            </div>
+                        <div class="mb-3">
+                            <label class="form-label">Which subjects you are interested in teaching? *</label>
+                            <textarea class="form-control" name="interested_subjects" id="interested_subjects" 
+                                      rows="3" placeholder="e.g., Mathematics, Physics, Chemistry, English" required></textarea>
+                            <small class="text-muted">List the subjects you are qualified and interested to teach</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Joining Date *</label>
+                            <input type="date" class="form-control" name="joining_date" id="joining_date" required>
                         </div>
 
                         <div class="mb-3">
@@ -834,7 +835,7 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                     document.getElementById('email').value = data.email;
                     document.getElementById('phone').value = data.phone;
                     document.getElementById('qualification').value = data.qualification;
-                    document.getElementById('dob').value = data.dob;
+                    document.getElementById('interested_subjects').value = data.interested_subjects || '';
                     document.getElementById('joining_date').value = data.joining_date;
                     document.getElementById('address').value = data.address;
                     document.getElementById('username').value = data.username;
