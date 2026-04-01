@@ -2,45 +2,60 @@
 session_start();
 require_once 'includes/db.php';
 
+// DEMO MODE - Set to TRUE for testing, FALSE for production
+$DEMO_MODE = true;
+$DEMO_OTP = '123456';
+
 // Handle OTP sending
 if(isset($_POST['send_otp'])) {
     $mobile = mysqli_real_escape_string($conn, $_POST['mobile']);
     
-    // Generate 6-digit OTP
-    $otp = rand(100000, 999999);
+    // Generate 6-digit OTP or use demo OTP
+    if($DEMO_MODE) {
+        $otp = $DEMO_OTP;
+    } else {
+        $otp = rand(100000, 999999);
+    }
     
     // Store OTP in session
     $_SESSION['otp'] = $otp;
     $_SESSION['otp_mobile'] = $mobile;
     $_SESSION['otp_time'] = time();
     
-    // Here you would integrate SMS API to send OTP
-   $api_key = "K6uCeGByYLJRtIIZRzQ";
-$mobile = "88" . $mobile; // convert 017xxxx to 88017xxxx
-$message = "Your CoachingPro OTP is: " . $otp;
+    if($DEMO_MODE) {
+        // Demo mode - just return success without sending SMS
+        $response = ['success' => true, 'message' => 'OTP sent successfully (Demo: Use 123456)', 'demo' => true, 'demo_otp' => $DEMO_OTP];
+        echo json_encode($response);
+        exit();
+    }
+    
+    // Production mode - Send real SMS via API
+    $api_key = "K6uCeGByYLJRtIIZRzQ";
+    $mobile_formatted = "88" . $mobile; // convert 017xxxx to 88017xxxx
+    $message = "Your CoachingPro OTP is: " . $otp;
 
-$url = "http://bulksmsbd.net/api/smsapi";
+    $url = "http://bulksmsbd.net/api/smsapi";
 
-$data = [
-    "api_key" => $api_key,
-    "type" => "text",
-    "number" => $mobile,
-    "senderid" => "8809601000500",
-    "message" => $message
-];
+    $data = [
+        "api_key" => $api_key,
+        "type" => "text",
+        "number" => $mobile_formatted,
+        "senderid" => "8809601000500",
+        "message" => $message
+    ];
 
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL,$url);
-curl_setopt($ch, CURLOPT_POST,1);
-curl_setopt($ch, CURLOPT_POSTFIELDS,$data);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER,true);
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_POST, 1);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
-$response_api = curl_exec($ch);
-curl_close($ch);
+    $response_api = curl_exec($ch);
+    curl_close($ch);
 
-$response = ['success' => true, 'message' => 'OTP sent successfully'];
-echo json_encode($response);
-exit();
+    $response = ['success' => true, 'message' => 'OTP sent successfully'];
+    echo json_encode($response);
+    exit();
     
 }
 
@@ -71,6 +86,11 @@ if(isset($_POST['submit_admission'])) {
         $program = mysqli_real_escape_string($conn, $_POST['program']);
         $group = mysqli_real_escape_string($conn, $_POST['group']);
         
+        // Parent Information
+        $parent_name = mysqli_real_escape_string($conn, $_POST['parent_name']);
+        $parent_email = mysqli_real_escape_string($conn, $_POST['parent_email']);
+        $parent_phone = mysqli_real_escape_string($conn, $_POST['parent_phone']);
+        
         // Get monthly fee based on program
         $monthly_fee = 0;
         if($program == 'Class 9') {
@@ -86,8 +106,8 @@ if(isset($_POST['submit_admission'])) {
         $application_fee = 500;
         
         // Insert into database
-        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, monthly_fee, transaction_id, payment_method, application_fee, status, created_at) 
-                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', $monthly_fee, '$transaction_id', '$payment_method', $application_fee, 'Pending', NOW())";
+        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, parent_name, parent_email, parent_phone, monthly_fee, transaction_id, payment_method, application_fee, status, created_at) 
+                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', '$parent_name', '$parent_email', '$parent_phone', $monthly_fee, '$transaction_id', '$payment_method', $application_fee, 'Pending', NOW())";
         
         if(mysqli_query($conn, $query)) {
             $application_id = mysqli_insert_id($conn);
@@ -507,6 +527,16 @@ $fees = [
             margin: 30px 0;
         }
 
+        .section-badge {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
         .btn-submit {
             background: linear-gradient(135deg, var(--cyan), var(--light-cyan));
             color: white;
@@ -729,6 +759,13 @@ $fees = [
 
                     <!-- Mobile with OTP Verification -->
                     <div class="otp-section" id="otpSection" data-aos="fade-up">
+                        <?php if($DEMO_MODE): ?>
+                        <div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
+                            <i class="fas fa-flask me-2"></i>
+                            <strong>🧪 Demo Mode Active</strong> - Use OTP: <strong style="font-size: 1.1em; color: #0c63e4;">123456</strong>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                        <?php endif; ?>
                         <label class="form-label">Mobile Number *</label>
                         <div class="input-group mb-3">
                             <span class="input-group-text">+88</span>
@@ -766,6 +803,31 @@ $fees = [
                         <div class="col-md-6" data-aos="fade-left">
                             <label class="form-label">Address *</label>
                             <textarea class="form-control" name="address" rows="1" required></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Parent Information Section -->
+                    <h3 class="section-title"><i class="fas fa-users me-2"></i>Parent Information</h3>
+                    
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-12" data-aos="fade-right">
+                            <label class="form-label">Parent/Guardian Name *</label>
+                            <input type="text" class="form-control" name="parent_name" required>
+                            <small class="text-muted">Full name of parent or guardian</small>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6" data-aos="fade-right">
+                            <label class="form-label">Parent Email Address * <span class="badge bg-warning text-dark">For Login</span></label>
+                            <input type="email" class="form-control" name="parent_email" required>
+                            <small class="text-muted">This email will be used for parent account login</small>
+                        </div>
+                        
+                        <div class="col-md-6" data-aos="fade-left">
+                            <label class="form-label">Parent Phone Number *</label>
+                            <input type="tel" class="form-control" name="parent_phone" pattern="[0-9+\-\s]+" placeholder="+880XXXXXXXXXX" required>
+                            <small class="text-muted">Mobile or landline number</small>
                         </div>
                     </div>
 
@@ -822,7 +884,7 @@ $fees = [
                         <div class="row">
                             <div class="col-md-6">
                                 <p><strong>Send payment to:</strong></p>
-                                <p id="paymentNumber">bKash: 019XXXXXXXX</p>
+                                <p id="paymentNumber">bKash: 01305421948</p>
                             </div>
                             <div class="col-md-6">
                                 <p><strong>Reference:</strong> Use your mobile number</p>
@@ -976,8 +1038,20 @@ $fees = [
                 dataType: 'json',
                 success: function(response) {
                     if(response.success) {
-                        alert('OTP sent to your phone');
                         document.getElementById('otpVerification').style.display = 'block';
+                        
+                        // Show demo OTP if in demo mode
+                        if(response.demo) {
+                            const demoAlert = `<div class="alert alert-info alert-dismissible fade show" id="demoOtpAlert">
+                                <i class="fas fa-flask me-2"></i><strong>Demo Mode:</strong> Use OTP: <strong style="font-size: 1.2em; color: #0c63e4;">${response.demo_otp}</strong>
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>`;
+                            document.getElementById('otpVerification').insertAdjacentHTML('beforebegin', demoAlert);
+                            alert('✅ OTP sent successfully!\n\nDemo Mode - Use OTP: ' + response.demo_otp);
+                        } else {
+                            alert('✅ OTP sent to your phone');
+                        }
+                        
                         startTimer(300);
                     } else {
                         alert('Failed to send OTP. Please try again.');
@@ -1062,11 +1136,11 @@ $fees = [
             
             const paymentNumber = document.getElementById('paymentNumber');
             if(method === 'bkash') {
-                paymentNumber.innerHTML = 'bKash: 01305421948 (personal)';
+                paymentNumber.innerHTML = 'bKash: 01305421948';
             } else if(method === 'nagad') {
-                paymentNumber.innerHTML = 'Nagad: 01305421948 (personal)';
+                paymentNumber.innerHTML = 'Nagad: 01305421948';
             } else if(method === 'rocket') {
-                paymentNumber.innerHTML = 'Rocket: 01305421948 (personal)';
+                paymentNumber.innerHTML = 'Rocket: 01305421948';
             }
             
             document.getElementById('transactionField').style.display = 'block';

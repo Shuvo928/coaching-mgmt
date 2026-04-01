@@ -259,6 +259,30 @@ CREATE TABLE syllabus (
 );
 
 -- =====================================================
+-- Table: admission_applications
+-- =====================================================
+CREATE TABLE admission_applications (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    full_name VARCHAR(100) NOT NULL,
+    gender ENUM('Male', 'Female', 'Other'),
+    mobile VARCHAR(15) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    address TEXT,
+    program VARCHAR(50) NOT NULL,
+    `group` VARCHAR(50),
+    parent_name VARCHAR(100) NOT NULL,
+    parent_email VARCHAR(100) NOT NULL,
+    parent_phone VARCHAR(15) NOT NULL,
+    monthly_fee DECIMAL(10,2),
+    transaction_id VARCHAR(100),
+    payment_method VARCHAR(50),
+    application_fee DECIMAL(10,2),
+    status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- =====================================================
 -- Insert Default Data
 -- =====================================================
 

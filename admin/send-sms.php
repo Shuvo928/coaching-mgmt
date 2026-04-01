@@ -22,10 +22,10 @@ if(isset($_POST['type'])) {
     
     $api_config = [
         // Your SMS Provider API Key
-        'api_key' => 'YOUR_API_KEY_HERE',  // Replace with actual API key
+        'api_key' => 'K6uCeGByYLJRtIIZRzQ',  // BulkSMSBD API Key
         
-        // Sender ID / Masking Name (usually 11 characters)
-        'sender_id' => '8801234567890',     // Replace with your sender ID
+        // Sender ID / Phone Number (Your registered phone with SMS provider)
+        'sender_id' => '01305421948',     // Your registered phone number
         
         // API URL of your SMS provider
         'api_url' => 'http://bulksmsbd.net/api/smsapi',  // Replace with provider URL

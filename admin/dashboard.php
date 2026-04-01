@@ -357,9 +357,9 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="class-management.php" class="menu-item">
-                    <i class="fas fa-school"></i>
-                    <span>Class & Subjects</span>
+                <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
                 </a>
                 <a href="attendance.php" class="menu-item">
                     <i class="fas fa-calendar-check"></i>
@@ -372,30 +372,6 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
                 <a href="fees-management.php" class="menu-item">
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
-                </a>
-                <a href="sms-system.php" class="menu-item">
-                    <i class="fas fa-sms"></i>
-                    <span>SMS System</span>
-                </a>
-                <a href="exam-routine.php" class="menu-item">
-                    <i class="fas fa-clock"></i>
-                    <span>Exam Routine</span>
-                </a>
-                <a href="syllabus.php" class="menu-item">
-                    <i class="fas fa-book"></i>
-                    <span>Syllabus</span>
-                </a>
-                <a href="expenses.php" class="menu-item">
-                    <i class="fas fa-credit-card"></i>
-                    <span>Expenses</span>
-                </a>
-                <a href="balance-sheet.php" class="menu-item">
-                    <i class="fas fa-balance-scale"></i>
-                    <span>Balance Sheet</span>
-                </a>
-                <a href="settings.php" class="menu-item">
-                    <i class="fas fa-cog"></i>
-                    <span>Settings</span>
                 </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
@@ -472,7 +448,7 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
 
                 <div class="stat-card">
                     <div class="stat-info">
-                        <h3>₹<?php echo number_format($stats['monthly_income']); ?></h3>
+                        <h3>৳<?php echo number_format($stats['monthly_income']); ?></h3>
                         <p>Monthly Income</p>
                     </div>
                     <div class="stat-icon green">
@@ -482,7 +458,7 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
 
                 <div class="stat-card">
                     <div class="stat-info">
-                        <h3>₹<?php echo number_format($stats['pending_fees']); ?></h3>
+                        <h3>৳<?php echo number_format($stats['pending_fees']); ?></h3>
                         <p>Pending Fees</p>
                     </div>
                     <div class="stat-icon red">

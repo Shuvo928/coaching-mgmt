@@ -929,7 +929,7 @@
                 <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
                     <div class="testimonial-card">
                         <div class="testimonial-header">
-                            <img src="https://randomuser.me/api/portraits/women/44.jpg" class="testimonial-image" alt="Parent">
+                            <img src="uploads/parent1 .jpeg" class="testimonial-image" alt="Parent">
                             <div>
                                 <div class="testimonial-name">Nasrin Akter</div>
                                 <div class="testimonial-role">Parent of Class 10 Student</div>
@@ -942,7 +942,7 @@
                 <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
                     <div class="testimonial-card">
                         <div class="testimonial-header">
-                            <img src="https://randomuser.me/api/portraits/men/32.jpg" class="testimonial-image" alt="Student">
+                            <img src="uploads/student.jpeg" class="testimonial-image" alt="Student">
                             <div>
                                 <div class="testimonial-name">Rafiq Islam</div>
                                 <div class="testimonial-role">SSC Candidate 2026</div>
@@ -955,7 +955,7 @@
                 <div class="col-md-4" data-aos="fade-up" data-aos-delay="300">
                     <div class="testimonial-card">
                         <div class="testimonial-header">
-                            <img src="https://randomuser.me/api/portraits/women/68.jpg" class="testimonial-image" alt="Parent">
+                            <img src="uploads/parent_man.jpeg" class="testimonial-image" alt="Parent">
                             <div>
                                 <div class="testimonial-name">Shahinur Rahman</div>
                                 <div class="testimonial-role">Parent of Class 9 Student</div>

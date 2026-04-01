@@ -410,9 +410,9 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="class-management.php" class="menu-item">
-                    <i class="fas fa-school"></i>
-                    <span>Class & Subjects</span>
+                <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
                 </a>
                 <a href="attendance.php" class="menu-item">
                     <i class="fas fa-calendar-check"></i>
@@ -425,22 +425,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                 <a href="fees-management.php" class="menu-item">
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
-                </a>
-                <a href="sms-system.php" class="menu-item">
-                    <i class="fas fa-sms"></i>
-                    <span>SMS System</span>
-                </a>
-                <a href="exam-routine.php" class="menu-item">
-                    <i class="fas fa-clock"></i>
-                    <span>Exam Routine</span>
-                </a>
-                <a href="syllabus.php" class="menu-item">
-                    <i class="fas fa-book"></i>
-                    <span>Syllabus</span>
-                </a>
-                <a href="expenses.php" class="menu-item">
-                    <i class="fas fa-credit-card"></i>
-                    <span>Expenses</span>
                 </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
@@ -520,8 +504,8 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                         <select class="form-select" id="classFilter">
                             <option value="">All Classes</option>
                             <?php while($class = mysqli_fetch_assoc($classes)): ?>
-                                <option value="<?php echo $class['class_name']; ?>">
-                                    <?php echo $class['class_name']; ?>
+                                <option value="<?php echo $class['class_name']. '-' . $class['section']; ?>">
+                                    <?php echo $class['class_name'] . ' - ' . $class['section']; ?>
                                 </option>
                             <?php endwhile; ?>
                         </select>
@@ -545,7 +529,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <th>Name</th>
                                 <th>Student ID</th>
                                 <th>Class</th>
-                                <th>Roll No</th>
+                                <th>Section</th>
                                 <th>Phone</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -570,7 +554,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
                                 <td><span class="badge bg-light text-dark"><?php echo $row['student_id']; ?></span></td>
                                 <td><?php echo $row['class_name'] ?? 'N/A'; ?></td>
-                                <td><?php echo $row['roll_number'] ?? 'N/A'; ?></td>
+                                <td><?php echo $row['section'] ?? 'N/A'; ?></td>
                                 <td><?php echo $row['phone'] ?? 'N/A'; ?></td>
                                 <td>
                                     <span class="status-badge <?php echo $row['status'] ? 'active' : 'inactive'; ?>">
@@ -642,16 +626,23 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <label class="form-label">Father's Name</label>
                                 <input type="text" class="form-control" name="father_name" id="father_name">
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Mother's Name</label>
-                                <input type="text" class="form-control" name="mother_name" id="mother_name">
-                            </div>
+                            <select class="form-select" name="class_id" id="class_id" required>
+                                    <option value="">Select Group</section></option>
+                                    <?php 
+                                    $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY section");
+                                    while($class = mysqli_fetch_assoc($classes)): 
+                                    ?>
+                                        <option value="<?php echo $class['id']; ?>">
+                                            <?php echo  ' - ' . $class['section']; ?>
+                                        </option>
+                                    <?php endwhile; ?>
+                                </select>
                         </div>
 
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Email</label>
-                                <input type="email" class="form-control" name="email" id="email">
+                                <label class="form-label">Email *</label>
+                                <input type="email" class="form-control" name="email" id="email" required>
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Phone *</label>

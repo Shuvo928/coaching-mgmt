@@ -451,9 +451,9 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="class-management.php" class="menu-item">
-                    <i class="fas fa-school"></i>
-                    <span>Class & Subjects</span>
+                <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
                 </a>
                 <a href="attendance.php" class="menu-item">
                     <i class="fas fa-calendar-check"></i>
@@ -466,10 +466,6 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                 <a href="fees-management.php" class="menu-item active">
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
-                </a>
-                <a href="sms-system.php" class="menu-item">
-                    <i class="fas fa-sms"></i>
-                    <span>SMS System</span>
                 </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>

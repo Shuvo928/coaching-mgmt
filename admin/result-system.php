@@ -365,9 +365,9 @@ $session = $current_year . '-' . ($current_year + 1);
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="class-management.php" class="menu-item">
-                    <i class="fas fa-school"></i>
-                    <span>Class & Subjects</span>
+                <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
                 </a>
                 <a href="attendance.php" class="menu-item">
                     <i class="fas fa-calendar-check"></i>
@@ -380,10 +380,6 @@ $session = $current_year . '-' . ($current_year + 1);
                 <a href="fees-management.php" class="menu-item">
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
-                </a>
-                <a href="sms-system.php" class="menu-item">
-                    <i class="fas fa-sms"></i>
-                    <span>SMS System</span>
                 </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
