@@ -105,13 +105,32 @@ if(isset($_POST['submit_admission'])) {
         $payment_method = mysqli_real_escape_string($conn, $_POST['payment_method']);
         $application_fee = 500;
         
+        // Generate unique receipt number
+        $receipt_no = 'RCP' . date('Ymd') . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+        
         // Insert into database
-        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, parent_name, parent_email, parent_phone, monthly_fee, transaction_id, payment_method, application_fee, status, created_at) 
-                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', '$parent_name', '$parent_email', '$parent_phone', $monthly_fee, '$transaction_id', '$payment_method', $application_fee, 'Pending', NOW())";
+        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, parent_name, parent_email, parent_phone, monthly_fee, transaction_id, payment_method, application_fee, receipt_no, status, created_at) 
+                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', '$parent_name', '$parent_email', '$parent_phone', $monthly_fee, '$transaction_id', '$payment_method', $application_fee, '$receipt_no', 'Pending', NOW())";
         
         if(mysqli_query($conn, $query)) {
             $application_id = mysqli_insert_id($conn);
-            $_SESSION['success'] = "Application submitted successfully! Your Application ID: APP" . str_pad($application_id, 5, '0', STR_PAD_LEFT);
+            
+            // Store receipt data in session for display
+            $_SESSION['receipt_data'] = [
+                'application_id' => $application_id,
+                'receipt_no' => $receipt_no,
+                'full_name' => $full_name,
+                'mobile' => $mobile,
+                'email' => $email,
+                'program' => $program,
+                'group' => $group,
+                'monthly_fee' => $monthly_fee,
+                'application_fee' => $application_fee,
+                'payment_method' => $payment_method,
+                'transaction_id' => $transaction_id,
+                'submission_date' => date('Y-m-d H:i:s')
+            ];
+            
             unset($_SESSION['otp_verified']);
             unset($_SESSION['otp']);
         } else {
@@ -625,18 +644,231 @@ $fees = [
                     <li class="nav-item">
                         <a class="nav-link" href="index.php">Home</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#programs">Programs</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#contact">Contact</a>
-                    </li>
+                   
                 </ul>
             </div>
         </div>
     </nav>
 
     <div class="admission-container" data-aos="fade-up">
+        <!-- Receipt Display (After Successful Submission) -->
+        <?php if(isset($_SESSION['receipt_data'])): ?>
+            <div class="receipt-container">
+                <div class="receipt-header">
+                    <div class="receipt-title">
+                        <i class="fas fa-check-circle" style="color: #4caf50; font-size: 48px;"></i>
+                        <h2>Application Submitted Successfully!</h2>
+                    </div>
+                </div>
+
+                <div class="receipt-content">
+                    <div class="receipt-section">
+                        <h4 class="section-title"><i class="fas fa-receipt me-2"></i>Receipt Details</h4>
+                        <div class="receipt-row">
+                            <span class="label">Receipt Number:</span>
+                            <span class="value"><?php echo $_SESSION['receipt_data']['receipt_no']; ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Application ID:</span>
+                            <span class="value">APP<?php echo str_pad($_SESSION['receipt_data']['application_id'], 5, '0', STR_PAD_LEFT); ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Submission Date:</span>
+                            <span class="value"><?php echo date('d M, Y H:i A', strtotime($_SESSION['receipt_data']['submission_date'])); ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Status:</span>
+                            <span class="value badge bg-warning">Pending Approval</span>
+                        </div>
+                    </div>
+
+                    <div class="receipt-section">
+                        <h4 class="section-title"><i class="fas fa-user me-2"></i>Student Information</h4>
+                        <div class="receipt-row">
+                            <span class="label">Full Name:</span>
+                            <span class="value"><?php echo $_SESSION['receipt_data']['full_name']; ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Mobile:</span>
+                            <span class="value"><?php echo $_SESSION['receipt_data']['mobile']; ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Email:</span>
+                            <span class="value"><?php echo $_SESSION['receipt_data']['email']; ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Program:</span>
+                            <span class="value"><?php echo $_SESSION['receipt_data']['program'] . ' - ' . $_SESSION['receipt_data']['group']; ?></span>
+                        </div>
+                    </div>
+
+                    <div class="receipt-section">
+                        <h4 class="section-title"><i class="fas fa-money-bill me-2"></i>Payment Details</h4>
+                        <div class="receipt-row">
+                            <span class="label">Application Fee:</span>
+                            <span class="value">৳<?php echo number_format($_SESSION['receipt_data']['application_fee'], 2); ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Monthly Fee:</span>
+                            <span class="value">৳<?php echo number_format($_SESSION['receipt_data']['monthly_fee'], 2); ?></span>
+                        </div>
+                        <div class="receipt-row" style="border-top: 2px solid #ddd; padding-top: 10px; margin-top: 10px;">
+                            <span class="label" style="font-weight: 700;">Total Payment:</span>
+                            <span class="value" style="font-weight: 700; color: #4caf50; font-size: 18px;">৳<?php echo number_format($_SESSION['receipt_data']['application_fee'], 2); ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Payment Method:</span>
+                            <span class="value"><?php echo $_SESSION['receipt_data']['payment_method']; ?></span>
+                        </div>
+                        <div class="receipt-row">
+                            <span class="label">Transaction ID:</span>
+                            <span class="value"><?php echo $_SESSION['receipt_data']['transaction_id']; ?></span>
+                        </div>
+                    </div>
+
+                    <div class="receipt-info-box">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <p><strong>Next Steps:</strong> Your application is under review. You will receive an SMS and email confirmation once your application is approved by the admin. You can also check the status anytime by logging into your parent portal.</p>
+                    </div>
+                </div>
+
+                <div class="receipt-actions">
+                    <button class="btn btn-primary" onclick="printReceipt()">
+                        <i class="fas fa-print me-2"></i>Print Receipt
+                    </button>
+                    <button class="btn btn-secondary" onclick="downloadReceipt()">
+                        <i class="fas fa-download me-2"></i>Download PDF
+                    </button>
+                    <a href="index.php" class="btn btn-outline-secondary">
+                        <i class="fas fa-home me-2"></i>Back to Home
+                    </a>
+                </div>
+            </div>
+
+            <style>
+                .receipt-container {
+                    background: white;
+                    border-radius: 15px;
+                    padding: 40px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+                    margin-bottom: 30px;
+                }
+
+                .receipt-header {
+                    text-align: center;
+                    margin-bottom: 30px;
+                    padding-bottom: 30px;
+                    border-bottom: 3px solid #f0f0f0;
+                }
+
+                .receipt-title {
+                    text-align: center;
+                }
+
+                .receipt-title h2 {
+                    margin-top: 15px;
+                    color: #333;
+                    font-weight: 700;
+                }
+
+                .receipt-content {
+                    margin-bottom: 30px;
+                }
+
+                .receipt-section {
+                    margin-bottom: 25px;
+                    padding: 20px;
+                    background: #f9f9f9;
+                    border-radius: 10px;
+                    border-left: 4px solid #06B6D4;
+                }
+
+                .section-title {
+                    color: #333;
+                    font-weight: 700;
+                    margin-bottom: 15px;
+                    font-size: 16px;
+                }
+
+                .receipt-row {
+                    display: flex;
+                    justify-content: space-between;
+                    padding: 10px 0;
+                    border-bottom: 1px solid #e0e0e0;
+                }
+
+                .receipt-row:last-child {
+                    border-bottom: none;
+                }
+
+                .receipt-row .label {
+                    color: #666;
+                    font-weight: 500;
+                }
+
+                .receipt-row .value {
+                    color: #333;
+                    font-weight: 600;
+                }
+
+                .receipt-info-box {
+                    background: #e8f5e9;
+                    border: 2px solid #4caf50;
+                    border-radius: 10px;
+                    padding: 15px;
+                    margin-bottom: 20px;
+                    color: #2e7d32;
+                }
+
+                .receipt-info-box p {
+                    margin: 0;
+                    font-size: 14px;
+                }
+
+                .receipt-actions {
+                    display: flex;
+                    gap: 10px;
+                    justify-content: center;
+                    flex-wrap: wrap;
+                }
+
+                .receipt-actions .btn {
+                    padding: 12px 25px;
+                    border-radius: 8px;
+                    font-weight: 600;
+                }
+
+                @media print {
+                    .receipt-actions, .navbar, .alert, .program-cards {
+                        display: none;
+                    }
+                    body {
+                        background: white;
+                    }
+                    .receipt-container {
+                        box-shadow: none;
+                        padding: 0;
+                    }
+                }
+            </style>
+
+            <script>
+                function printReceipt() {
+                    window.print();
+                }
+
+                function downloadReceipt() {
+                    // Simple download as HTML (enhanced can use jsPDF)
+                    alert('Receipt download feature coming soon! Currently you can use Print and save as PDF.');
+                }
+            </script>
+
+            <?php 
+                // Clear receipt data after display
+                unset($_SESSION['receipt_data']);
+            ?>
+        <?php endif; ?>
+
         <!-- Success/Error Messages -->
         <?php if(isset($_SESSION['success'])): ?>
             <div class="alert alert-success alert-dismissible fade show">

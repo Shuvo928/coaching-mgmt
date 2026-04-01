@@ -551,16 +551,8 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav mx-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="class9.php">Class 9</a>
-                        
-                    </li>
-                    <li class="nav-item">
-                        
-                        <a class="nav-link" href="class10.php">Class 10</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="ssc.php">SSC Batch</a>
+<li class="nav-item">
+                        <a class="nav-link" href="contact.php">Home</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="about.php">About</a>
@@ -568,12 +560,10 @@
                     <li class="nav-item">
                         <a class="nav-link" href="contact.php">Contact</a>
                     </li>
+                    
                 </ul>
-                <div class="d-flex align-items-center">
-                    <div class="phone-number">
-                        <i class="fas fa-phone-alt"></i>
-                        <span>2987</span>
-                    </div>
+                
+                    <a href="parent-login.php" class="btn-outline-cyan me-2"><i class="fas fa-user-tie me-1"></i>Parent Portal</a>
                     <a href="admin/login.php" class="btn-outline-cyan me-2">Login</a>
                     <a href="admission.php" class="btn-cyan">Admission</a>
                 </div>

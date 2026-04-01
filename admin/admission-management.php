@@ -46,7 +46,7 @@ if(isset($_POST['approve'])) {
     $id = mysqli_real_escape_string($conn, $_POST['id']);
     
     // Get application details
-    $app_query = "SELECT full_name, mobile, parent_name, parent_phone FROM admission_applications WHERE id = $id";
+    $app_query = "SELECT full_name, mobile, parent_name, parent_phone, application_fee, monthly_fee, payment_method, transaction_id FROM admission_applications WHERE id = $id";
     $app_result = mysqli_query($conn, $app_query);
     $app = mysqli_fetch_assoc($app_result);
     
@@ -54,6 +54,35 @@ if(isset($_POST['approve'])) {
         // Update status
         $query = "UPDATE admission_applications SET status = 'Approved' WHERE id = $id";
         if(mysqli_query($conn, $query)) {
+            // Generate receipt number
+            $receipt_no = 'RCP' . date('Ymd') . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+            
+            // Get or create "Admission Fee" fee head
+            $fee_head_query = "SELECT id FROM fees_head WHERE fee_name = 'Admission Fee' LIMIT 1";
+            $fee_head_result = mysqli_query($conn, $fee_head_query);
+            
+            if(mysqli_num_rows($fee_head_result) > 0) {
+                $fee_head = mysqli_fetch_assoc($fee_head_result);
+                $fee_head_id = $fee_head['id'];
+            } else {
+                // Create Admission Fee head if doesn't exist
+                $create_fee_head = "INSERT INTO fees_head (fee_name, description, is_mandatory) VALUES ('Admission Fee', 'One-time admission fee', 1)";
+                if(mysqli_query($conn, $create_fee_head)) {
+                    $fee_head_id = mysqli_insert_id($conn);
+                } else {
+                    $fee_head_id = 1; // fallback to first fee head
+                }
+            }
+            
+            // Insert application fee into fee_collections
+            $fee_insert = "INSERT INTO fee_collections (student_id, fee_head_id, amount, paid_amount, due_amount, payment_method, receipt_no, status, created_at) 
+                           VALUES (NULL, $fee_head_id, " . floatval($app['application_fee']) . ", " . floatval($app['application_fee']) . ", 0, '$app[payment_method]', '$receipt_no', 'Paid', NOW())";
+            
+            if(!mysqli_query($conn, $fee_insert)) {
+                // If insertion fails, log the error but don't stop the approval
+                error_log("Fee insertion error: " . mysqli_error($conn));
+            }
+            
             // Send approval SMS to student
             $student_message = "Dear " . $app['full_name'] . ",\n\nCongratulations! Your admission has been APPROVED. Please visit the center to complete the enrollment process.\n\nCoachingPro Admin";
             sendSMS($app['mobile'], $student_message);
@@ -62,7 +91,7 @@ if(isset($_POST['approve'])) {
             $parent_message = "Dear " . $app['parent_name'] . ",\n\nYour ward's admission has been APPROVED. Please visit the center to complete the enrollment process.\n\nCoachingPro Admin";
             sendSMS($app['parent_phone'], $parent_message);
             
-            $_SESSION['success'] = "Application approved successfully! SMS sent to student and parent.";
+            $_SESSION['success'] = "Application approved successfully! Admission fee recorded in fee management.";
         }
     }
 }

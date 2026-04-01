@@ -570,19 +570,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                        class="action-btn btn-edit" title="Edit">
                                         <i class="fas fa-edit"></i>
                                     </a>
-                                    <a href="?toggle=<?php echo $row['id']; ?>" 
-                                       class="action-btn btn-toggle" title="Toggle Status"
-                                       onclick="return confirm('Change status?')">
-                                        <i class="fas fa-toggle-<?php echo $row['status'] ? 'on' : 'off'; ?>"></i>
-                                    </a>
-                                    <a href="generate-id-card.php?student_id=<?php echo $row['id']; ?>" 
-                                       class="action-btn btn-id-card" title="ID Card" target="_blank">
-                                        <i class="fas fa-id-card"></i>
-                                    </a>
-                                    <a href="generate-admit-card.php?student_id=<?php echo $row['id']; ?>" 
-                                       class="action-btn btn-admit-card" title="Admit Card" target="_blank">
-                                        <i class="fas fa-ticket-alt"></i>
-                                    </a>
+                                  
                                     <a href="?delete=<?php echo $row['id']; ?>" 
                                        class="action-btn btn-delete" title="Delete"
                                        onclick="return confirm('Are you sure you want to delete this student?')">
@@ -626,17 +614,10 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <label class="form-label">Father's Name</label>
                                 <input type="text" class="form-control" name="father_name" id="father_name">
                             </div>
-                            <select class="form-select" name="class_id" id="class_id" required>
-                                    <option value="">Select Group</section></option>
-                                    <?php 
-                                    $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY section");
-                                    while($class = mysqli_fetch_assoc($classes)): 
-                                    ?>
-                                        <option value="<?php echo $class['id']; ?>">
-                                            <?php echo  ' - ' . $class['section']; ?>
-                                        </option>
-                                    <?php endwhile; ?>
-                                </select>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Mother's Name</label>
+                                <input type="text" class="form-control" name="mother_name" id="mother_name">
+                            </div>
                         </div>
 
                         <div class="row">
@@ -653,7 +634,8 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                         <div class="row">
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Date of Birth</label>
-                                <input type="date" class="form-control" name="dob" id="dob">
+                                <input type="date" class="form-control" name="dob" id="dob" min="1990-01-01" max="2015-12-31">
+                                <small class="text-muted">Year range: 1990 - 2015</small>
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Gender</label>
@@ -691,7 +673,8 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Admission Date</label>
-                                <input type="date" class="form-control" name="admission_date" id="admission_date">
+                                <input type="date" class="form-control" name="admission_date" id="admission_date" min="2015-01-01" max="2026-12-31">
+                                <small class="text-muted">Year range: 2015 - 2026</small>
                             </div>
                         </div>
 
