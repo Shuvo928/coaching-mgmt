@@ -42,8 +42,8 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name, secti
 $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_name, s.student_id, 
                                             fh.fee_name
                                            FROM fee_collections fc
-                                           JOIN students s ON fc.student_id = s.id
-                                           JOIN fees_head fh ON fc.fee_head_id = fh.id
+                                           LEFT JOIN students s ON fc.student_id = s.id
+                                           LEFT JOIN fees_head fh ON fc.fee_head_id = fh.id
                                            ORDER BY fc.created_at DESC LIMIT 10");
 ?>
 
@@ -614,9 +614,9 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                         <?php while($row = mysqli_fetch_assoc($recent_collections)): ?>
                                         <tr>
                                             <td><span class="badge bg-secondary"><?php echo $row['receipt_no']; ?></span></td>
-                                            <td><?php echo date('d-m-Y', strtotime($row['payment_date'])); ?></td>
-                                            <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
-                                            <td><?php echo $row['fee_name']; ?></td>
+                                            <td><?php echo date('d-m-Y', strtotime($row['payment_date'] ?? date('Y-m-d'))); ?></td>
+                                            <td><?php echo ($row['first_name'] && $row['last_name']) ? $row['first_name'] . ' ' . $row['last_name'] : '<span class="text-warning">Pending Enrollment</span>'; ?></td>
+                                            <td><?php echo $row['fee_name'] ?? '<span class="text-danger">Unknown Fee</span>'; ?></td>
                                             <td class="amount">৳<?php echo number_format($row['amount'], 2); ?></td>
                                             <td class="amount">৳<?php echo number_format($row['paid_amount'], 2); ?></td>
                                             <td class="amount">৳<?php echo number_format($row['due_amount'], 2); ?></td>

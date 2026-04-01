@@ -75,12 +75,16 @@ if(isset($_POST['approve'])) {
             }
             
             // Insert application fee into fee_collections
-            $fee_insert = "INSERT INTO fee_collections (student_id, fee_head_id, amount, paid_amount, due_amount, payment_method, receipt_no, status, created_at) 
-                           VALUES (NULL, $fee_head_id, " . floatval($app['application_fee']) . ", " . floatval($app['application_fee']) . ", 0, '$app[payment_method]', '$receipt_no', 'Paid', NOW())";
+            $payment_method = !empty($app['payment_method']) ? $app['payment_method'] : 'Cash';
+            $fee_insert = "INSERT INTO fee_collections (student_id, fee_head_id, amount, paid_amount, due_amount, payment_date, payment_method, receipt_no, status, created_at) 
+                           VALUES (NULL, $fee_head_id, " . floatval($app['application_fee']) . ", " . floatval($app['application_fee']) . ", 0, CURDATE(), '$payment_method', '$receipt_no', 'Paid', NOW())";
             
             if(!mysqli_query($conn, $fee_insert)) {
                 // If insertion fails, log the error but don't stop the approval
                 error_log("Fee insertion error: " . mysqli_error($conn));
+            } else {
+                // Update admission record to mark fee as recorded
+                mysqli_query($conn, "UPDATE admission_applications SET fee_recorded = 1 WHERE id = $id");
             }
             
             // Send approval SMS to student
