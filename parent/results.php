@@ -13,7 +13,7 @@ $student_name = $_SESSION['student_name'];
 $student_mobile = $_SESSION['student_mobile'];
 
 // Get student info to find student ID
-$student_query = "SELECT id FROM students WHERE mobile = '$student_mobile' LIMIT 1";
+$student_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
 $student_result = mysqli_query($conn, $student_query);
 $student = mysqli_fetch_assoc($student_result);
 $student_id = $student['id'] ?? 0;
@@ -25,14 +25,13 @@ $results_query = "SELECT
                     r.total_marks,
                     r.percentage,
                     r.grade,
-                    r.exam_date,
                     s.subject_name,
-                    e.exam_type
+                    e.exam_name as exam_type
                   FROM results r
                   LEFT JOIN subjects s ON r.subject_id = s.id
-                  LEFT JOIN exam_types e ON r.exam_id = e.id
+                  LEFT JOIN exam_types e ON r.exam_type_id = e.id
                   WHERE r.student_id = $student_id
-                  ORDER BY r.exam_date DESC";
+                  ORDER BY r.id DESC";
 
 $results_result = mysqli_query($conn, $results_query);
 

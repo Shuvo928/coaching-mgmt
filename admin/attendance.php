@@ -400,9 +400,10 @@ $recent = mysqli_query($conn, $recent_query);
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="class-management.php" class="menu-item">
-                    <i class="fas fa-school"></i>
-                    <span>Class & Subjects</span>
+               
+            <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-user-plus"></i>
+                    <span>Admissions</span>
                 </a>
                 <a href="attendance.php" class="menu-item active">
                     <i class="fas fa-calendar-check"></i>
@@ -416,10 +417,7 @@ $recent = mysqli_query($conn, $recent_query);
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
                 </a>
-                <a href="sms-system.php" class="menu-item">
-                    <i class="fas fa-sms"></i>
-                    <span>SMS System</span>
-                </a>
+               
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
                     <span>Logout</span>

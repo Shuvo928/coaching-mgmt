@@ -11,13 +11,14 @@ if(!isset($_SESSION['parent_id'])) {
 $parent_id = $_SESSION['parent_id'];
 $parent_name = $_SESSION['parent_name'];
 $student_name = $_SESSION['student_name'];
+$student_mobile = $_SESSION['student_mobile'];
 
 // Get current month and year
 $current_month = isset($_GET['month']) ? (int)$_GET['month'] : date('m');
 $current_year = isset($_GET['year']) ? (int)$_GET['year'] : date('Y');
 
 // Get student info to find student ID
-$student_query = "SELECT id FROM students WHERE mobile = '$student_mobile' LIMIT 1";
+$student_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
 $student_result = mysqli_query($conn, $student_query);
 $student = mysqli_fetch_assoc($student_result);
 $student_id = $student['id'] ?? 0;

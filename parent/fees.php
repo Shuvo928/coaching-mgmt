@@ -13,25 +13,31 @@ $student_name = $_SESSION['student_name'];
 $student_mobile = $_SESSION['student_mobile'];
 
 // Get student info to find student ID
-$student_query = "SELECT id, monthly_fee FROM admission_applications WHERE id = $parent_id LIMIT 1";
+$admission_query = "SELECT monthly_fee FROM admission_applications WHERE id = $parent_id LIMIT 1";
+$admission_result = mysqli_query($conn, $admission_query);
+$admission_data = mysqli_fetch_assoc($admission_result);
+$monthly_fee = $admission_data['monthly_fee'] ?? 0;
+
+// Get student ID from students table
+$student_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
 $student_result = mysqli_query($conn, $student_query);
 $student_data = mysqli_fetch_assoc($student_result);
 $student_id = $student_data['id'] ?? 0;
-$monthly_fee = $student_data['monthly_fee'] ?? 0;
 
 // Get fee collections for this student
 $fees_query = "SELECT 
-                    id,
-                    fee_head,
-                    amount,
-                    paid_amount,
-                    due_amount,
-                    status,
-                    payment_date,
-                    created_at
-                FROM fee_collections
-                WHERE student_id = $student_id
-                ORDER BY created_at DESC";
+                    fc.id,
+                    fh.fee_name,
+                    fc.amount,
+                    fc.paid_amount,
+                    fc.due_amount,
+                    fc.status,
+                    fc.payment_date,
+                    fc.created_at
+                FROM fee_collections fc
+                LEFT JOIN fees_head fh ON fc.fee_head_id = fh.id
+                WHERE fc.student_id = $student_id
+                ORDER BY fc.created_at DESC";
 
 $fees_result = mysqli_query($conn, $fees_query);
 

@@ -18,17 +18,24 @@ $query = "SELECT * FROM admission_applications WHERE id = $parent_id";
 $result = mysqli_query($conn, $query);
 $student = mysqli_fetch_assoc($result);
 
-// Get attendance count (assuming student exists in students table)
+// Get student ID from students table using mobile
+$std_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
+$std_result = mysqli_query($conn, $std_query);
+$std_data = mysqli_fetch_assoc($std_result);
+$student_id = $std_data['id'] ?? 0;
+
+// Get attendance count for this month
 $attendance_query = "SELECT COUNT(*) as total_present FROM attendance 
-                     WHERE EXTRACT(YEAR FROM date) = YEAR(NOW()) 
-                     AND EXTRACT(MONTH FROM date) = MONTH(NOW())
-                     LIMIT 1";
+                     WHERE YEAR(date) = YEAR(NOW()) 
+                     AND MONTH(date) = MONTH(NOW())
+                     AND student_id = $student_id
+                     AND status = 'Present'";
 $attendance_result = mysqli_query($conn, $attendance_query);
 $attendance = mysqli_fetch_assoc($attendance_result);
 
-// Get pending fees
+// Get pending fees for this student
 $fees_query = "SELECT SUM(due_amount) as total_pending FROM fee_collections 
-               WHERE status != 'Paid' LIMIT 1";
+               WHERE student_id = $student_id AND status != 'Paid'";
 $fees_result = mysqli_query($conn, $fees_query);
 $fees = mysqli_fetch_assoc($fees_result);
 ?>

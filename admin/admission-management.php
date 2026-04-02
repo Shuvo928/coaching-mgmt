@@ -46,11 +46,49 @@ if(isset($_POST['approve'])) {
     $id = mysqli_real_escape_string($conn, $_POST['id']);
     
     // Get application details
-    $app_query = "SELECT full_name, mobile, parent_name, parent_phone, application_fee, monthly_fee, payment_method, transaction_id FROM admission_applications WHERE id = $id";
+    $app_query = "SELECT id, full_name, mobile, parent_name, parent_phone, application_fee, monthly_fee, payment_method, transaction_id, program, `group`, email, gender, address FROM admission_applications WHERE id = $id";
     $app_result = mysqli_query($conn, $app_query);
     $app = mysqli_fetch_assoc($app_result);
     
     if($app) {
+        // Get class_id based on program name
+        $program_name = mysqli_real_escape_string($conn, $app['program']);
+        $class_query = "SELECT id FROM classes WHERE class_name = '$program_name' LIMIT 1";
+        $class_result = mysqli_query($conn, $class_query);
+        $class_data = mysqli_fetch_assoc($class_result);
+        $class_id = $class_data ? $class_data['id'] : NULL;
+        
+        // Parse full name into first and last name
+        $name_parts = explode(' ', trim($app['full_name']), 2);
+        $first_name = mysqli_real_escape_string($conn, $name_parts[0]);
+        $last_name = mysqli_real_escape_string($conn, isset($name_parts[1]) ? $name_parts[1] : '');
+        
+        // Generate unique student ID
+        $prefix = 'STU';
+        $year = date('Y');
+        $count_query = "SELECT COUNT(*) as total FROM students WHERE student_id LIKE '{$prefix}{$year}%'";
+        $count_result = mysqli_query($conn, $count_query);
+        $count_row = mysqli_fetch_assoc($count_result);
+        $student_count = intval($count_row['total']) + 1;
+        $student_id_code = $prefix . $year . str_pad($student_count, 4, '0', STR_PAD_LEFT);
+        
+        // Create student record from admission application
+        $email = mysqli_real_escape_string($conn, $app['email']);
+        $phone = mysqli_real_escape_string($conn, $app['mobile']);
+        $gender = mysqli_real_escape_string($conn, $app['gender']);
+        $address = mysqli_real_escape_string($conn, $app['address'] ?? '');
+        
+        $student_insert = "INSERT INTO students (student_id, first_name, last_name, email, phone, gender, address, class_id, admission_date, status) 
+                           VALUES ('$student_id_code', '$first_name', '$last_name', '$email', '$phone', '$gender', '$address', " . ($class_id ? $class_id : 'NULL') . ", CURDATE(), 1)";
+        
+        $student_result = mysqli_query($conn, $student_insert);
+        if($student_result) {
+            $new_student_id = mysqli_insert_id($conn);
+        } else {
+            $new_student_id = NULL;
+            error_log("Student creation error for admission {$id}: " . mysqli_error($conn));
+        }
+        
         // Update status
         $query = "UPDATE admission_applications SET status = 'Approved' WHERE id = $id";
         if(mysqli_query($conn, $query)) {
@@ -74,10 +112,17 @@ if(isset($_POST['approve'])) {
                 }
             }
             
-            // Insert application fee into fee_collections
+            // Insert application fee into fee_collections with student_id
             $payment_method = !empty($app['payment_method']) ? $app['payment_method'] : 'Cash';
-            $fee_insert = "INSERT INTO fee_collections (student_id, fee_head_id, amount, paid_amount, due_amount, payment_date, payment_method, receipt_no, status, created_at) 
-                           VALUES (NULL, $fee_head_id, " . floatval($app['application_fee']) . ", " . floatval($app['application_fee']) . ", 0, CURDATE(), '$payment_method', '$receipt_no', 'Paid', NOW())";
+            
+            // Build the fee insertion query with proper NULL handling
+            if($new_student_id) {
+                $fee_insert = "INSERT INTO fee_collections (student_id, fee_head_id, amount, paid_amount, due_amount, payment_date, payment_method, receipt_no, status, created_at) 
+                               VALUES ($new_student_id, $fee_head_id, " . floatval($app['application_fee']) . ", " . floatval($app['application_fee']) . ", 0, CURDATE(), '$payment_method', '$receipt_no', 'Paid', NOW())";
+            } else {
+                $fee_insert = "INSERT INTO fee_collections (student_id, fee_head_id, amount, paid_amount, due_amount, payment_date, payment_method, receipt_no, status, created_at) 
+                               VALUES (NULL, $fee_head_id, " . floatval($app['application_fee']) . ", " . floatval($app['application_fee']) . ", 0, CURDATE(), '$payment_method', '$receipt_no', 'Paid', NOW())";
+            }
             
             if(!mysqli_query($conn, $fee_insert)) {
                 // If insertion fails, log the error but don't stop the approval
@@ -88,14 +133,14 @@ if(isset($_POST['approve'])) {
             }
             
             // Send approval SMS to student
-            $student_message = "Dear " . $app['full_name'] . ",\n\nCongratulations! Your admission has been APPROVED. Please visit the center to complete the enrollment process.\n\nCoachingPro Admin";
+            $student_message = "Dear " . $app['full_name'] . ",\n\nCongratulations! Your admission has been APPROVED. Your Student ID: " . $student_id_code . "\n\nCoachingPro Admin";
             sendSMS($app['mobile'], $student_message);
             
             // Send approval SMS to parent
-            $parent_message = "Dear " . $app['parent_name'] . ",\n\nYour ward's admission has been APPROVED. Please visit the center to complete the enrollment process.\n\nCoachingPro Admin";
+            $parent_message = "Dear " . $app['parent_name'] . ",\n\nYour ward's admission has been APPROVED. Student ID: " . $student_id_code . "\n\nCoachingPro Admin";
             sendSMS($app['parent_phone'], $parent_message);
             
-            $_SESSION['success'] = "Application approved successfully! Admission fee recorded in fee management.";
+            $_SESSION['success'] = "Application approved successfully! Student ID: " . $student_id_code . " | Admission fee recorded.";
         }
     }
 }
@@ -132,6 +177,53 @@ if(isset($_POST['delete'])) {
     $query = "DELETE FROM admission_applications WHERE id = $id";
     if(mysqli_query($conn, $query)) {
         $_SESSION['success'] = "Application deleted successfully!";
+    }
+}
+
+// Backfill: Create students for approved admissions that don't have students yet
+$backfill_query = "SELECT aa.id, aa.full_name, aa.email, aa.mobile, aa.gender, aa.address, aa.program 
+                   FROM admission_applications aa
+                   LEFT JOIN fee_collections fc ON aa.id = fc.id
+                   LEFT JOIN students s ON aa.mobile = s.phone
+                   WHERE aa.status = 'Approved' AND s.id IS NULL
+                   LIMIT 10";  // Limit to prevent long execution
+$backfill_result = mysqli_query($conn, $backfill_query);
+
+if(mysqli_num_rows($backfill_result) > 0) {
+    while($app = mysqli_fetch_assoc($backfill_result)) {
+        // Get class_id based on program
+        $prog = mysqli_real_escape_string($conn, $app['program']);
+        $class_q = "SELECT id FROM classes WHERE class_name = '$prog' LIMIT 1";
+        $class_r = mysqli_query($conn, $class_q);
+        $class_d = mysqli_fetch_assoc($class_r);
+        $cls_id = $class_d ? $class_d['id'] : NULL;
+        
+        // Generate student ID
+        $yr = date('Y');
+        $cnt_q = "SELECT COUNT(*) as total FROM students WHERE student_id LIKE 'STU{$yr}%'";
+        $cnt_r = mysqli_query($conn, $cnt_q);
+        $cnt_row = mysqli_fetch_assoc($cnt_r);
+        $cnt = intval($cnt_row['total']) + 1;
+        $std_id = 'STU' . $yr . str_pad($cnt, 4, '0', STR_PAD_LEFT);
+        
+        // Parse name
+        $parts = explode(' ', trim($app['full_name']), 2);
+        $fname = mysqli_real_escape_string($conn, $parts[0]);
+        $lname = mysqli_real_escape_string($conn, isset($parts[1]) ? $parts[1] : '');
+        $email = mysqli_real_escape_string($conn, $app['email']);
+        $phone = mysqli_real_escape_string($conn, $app['mobile']);
+        $gen = mysqli_real_escape_string($conn, $app['gender']);
+        $addr = mysqli_real_escape_string($conn, $app['address'] ?? '');
+        
+        // Create student
+        $std_insert = "INSERT INTO students (student_id, first_name, last_name, email, phone, gender, address, class_id, admission_date, status) 
+                       VALUES ('$std_id', '$fname', '$lname', '$email', '$phone', '$gen', '$addr', " . ($cls_id ? $cls_id : 'NULL') . ", CURDATE(), 1)";
+        
+        if(mysqli_query($conn, $std_insert)) {
+            $new_std_id = mysqli_insert_id($conn);
+            // Update fee_collections with student_id
+            mysqli_query($conn, "UPDATE fee_collections SET student_id = $new_std_id WHERE student_id IS NULL AND fee_head_id IN (SELECT id FROM fees_head WHERE fee_name = 'Admission Fee') AND created_at >= DATE_SUB(NOW(), INTERVAL 1 WEEK) LIMIT 1");
+        }
     }
 }
 
@@ -455,8 +547,8 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
             
             <ul class="sidebar-menu">
                 <li><a href="dashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
-                <li><a href="student-management.php"><i class="fas fa-users"></i>Students</a></li>
-                <li><a href="teacher-management.php"><i class="fas fa-chalkboard-user"></i>Teachers</a></li>
+                <li><a href="student-management.php"><i class="fas fa-users"></i>Student Management</a></li>
+                <li><a href="teacher-management.php"><i class="fas fa-chalkboard-user"></i>Teacher Management</a></li>
                 <li><a href="admission-management.php" class="active"><i class="fas fa-file-alt"></i>Admissions</a></li>
                 <li><a href="attendance.php"><i class="fas fa-clipboard-list"></i>Attendance</a></li>
                 <li><a href="result-system.php"><i class="fas fa-chart-bar"></i>Result System</a></li>

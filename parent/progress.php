@@ -11,6 +11,7 @@ if(!isset($_SESSION['parent_id'])) {
 $parent_id = $_SESSION['parent_id'];
 $parent_name = $_SESSION['parent_name'];
 $student_name = $_SESSION['student_name'];
+$student_mobile = $_SESSION['student_mobile'];
 
 // Get student enrollment and program info
 $student_query = "SELECT 
@@ -28,15 +29,21 @@ $student_query = "SELECT
 $student_result = mysqli_query($conn, $student_query);
 $student = mysqli_fetch_assoc($student_result);
 
+// Get student ID from students table
+$std_query = "SELECT id FROM students WHERE phone = '{$student['mobile']}' LIMIT 1";
+$std_result = mysqli_query($conn, $std_query);
+$std_data = mysqli_fetch_assoc($std_result);
+$student_id = $std_data['id'] ?? 0;
+
 // Get total classes attended
 $class_query = "SELECT COUNT(*) as classes_attended FROM attendance 
-                WHERE student_id = $parent_id AND status = 'Present'";
+                WHERE student_id = $student_id AND status = 'Present'";
 $class_result = mysqli_query($conn, $class_query);
 $class_data = mysqli_fetch_assoc($class_result);
 
 // Get average marks
 $marks_query = "SELECT AVG(percentage) as avg_marks FROM results 
-                WHERE student_id = $parent_id";
+                WHERE student_id = $student_id";
 $marks_result = mysqli_query($conn, $marks_query);
 $marks_data = mysqli_fetch_assoc($marks_result);
 
