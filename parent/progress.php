@@ -19,7 +19,7 @@ $student_query = "SELECT
                     email,
                     mobile,
                     program,
-                    group,
+                    `group`,
                     monthly_fee,
                     created_at,
                     status
