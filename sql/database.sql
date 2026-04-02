@@ -210,6 +210,30 @@ CREATE TABLE fee_collections (
 );
 
 -- =====================================================
+-- Table: monthly_fees (Recurring Monthly Fees Tracking)
+-- =====================================================
+CREATE TABLE monthly_fees (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    student_id INT NOT NULL,
+    class_id INT NOT NULL,
+    month VARCHAR(20) NOT NULL,
+    year INT NOT NULL,
+    tuition_fee DECIMAL(10,2) NOT NULL,
+    paid_amount DECIMAL(10,2) DEFAULT 0,
+    due_amount DECIMAL(10,2) NOT NULL,
+    status ENUM('Paid', 'Partial', 'Unpaid') DEFAULT 'Unpaid',
+    payment_date DATE,
+    payment_method VARCHAR(50),
+    receipt_no VARCHAR(50),
+    transaction_id VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_month (student_id, month, year)
+);
+
+-- =====================================================
 -- Table: expense_head
 -- =====================================================
 CREATE TABLE expense_head (
