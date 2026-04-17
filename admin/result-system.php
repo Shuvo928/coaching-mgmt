@@ -8,7 +8,7 @@ checkAuth();
 checkRole(['admin', 'teacher']);
 
 // Get classes (Class 6 to 10 only)
-$classes = mysqli_query($conn, "SELECT * FROM classes WHERE class_name IN ('Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10') ORDER BY class_name, section");
+$classes = mysqli_query($conn, "SELECT * FROM classes WHERE class_name IN ('Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10') ORDER BY class_name");
 
 // Get exam types
 $exam_types = mysqli_query($conn, "SELECT * FROM exam_types ORDER BY exam_name");
@@ -482,7 +482,7 @@ $session = $current_year . '-' . ($current_year + 1);
                                         <option value="">Choose Class</option>
                                         <?php while($class = mysqli_fetch_assoc($classes)): ?>
                                             <option value="<?php echo $class['id']; ?>">
-                                                <?php echo $class['class_name'] . ' - ' . $class['section']; ?>
+                                                <?php echo $class['class_name']; ?>
                                             </option>
                                         <?php endwhile; ?>
                                     </select>
@@ -604,7 +604,7 @@ $session = $current_year . '-' . ($current_year + 1);
                                         while($class = mysqli_fetch_assoc($classes)): 
                                         ?>
                                             <option value="<?php echo $class['id']; ?>">
-                                                <?php echo $class['class_name'] . ' - ' . $class['section']; ?>
+                                                <?php echo $class['class_name']; ?>
                                             </option>
                                         <?php endwhile; ?>
                                     </select>
@@ -664,7 +664,7 @@ $session = $current_year . '-' . ($current_year + 1);
                                         while($class = mysqli_fetch_assoc($classes)): 
                                         ?>
                                             <option value="<?php echo $class['id']; ?>">
-                                                <?php echo $class['class_name'] . ' - ' . $class['section']; ?>
+                                                <?php echo $class['class_name']; ?>
                                             </option>
                                         <?php endwhile; ?>
                                     </select>

@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+require_once __DIR__ . '/../includes/mailer.php';
 
 // Check if user is logged in
 if(!isset($_SESSION['user_id'])) {
@@ -41,107 +42,21 @@ function sendSMS($mobile, $message) {
     return true;
 }
 
+function ensureAdmissionFeeRecordedColumn($conn) {
+    $check = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'fee_recorded'");
+    if ($check && mysqli_num_rows($check) === 0) {
+        mysqli_query($conn, "ALTER TABLE admission_applications ADD COLUMN fee_recorded TINYINT(1) DEFAULT 0 AFTER application_fee");
+    }
+}
+
 // Handle approval
 if(isset($_POST['approve'])) {
     $id = mysqli_real_escape_string($conn, $_POST['id']);
-    
-    // Get application details
-    $app_query = "SELECT id, full_name, mobile, parent_name, parent_phone, application_fee, monthly_fee, payment_method, transaction_id, program, `group`, email, gender, address FROM admission_applications WHERE id = $id";
-    $app_result = mysqli_query($conn, $app_query);
-    $app = mysqli_fetch_assoc($app_result);
-    
-    if($app) {
-        // Get class_id based on program name
-        $program_name = mysqli_real_escape_string($conn, $app['program']);
-        $class_query = "SELECT id FROM classes WHERE class_name = '$program_name' LIMIT 1";
-        $class_result = mysqli_query($conn, $class_query);
-        $class_data = mysqli_fetch_assoc($class_result);
-        $class_id = $class_data ? $class_data['id'] : NULL;
-        
-        // Parse full name into first and last name
-        $name_parts = explode(' ', trim($app['full_name']), 2);
-        $first_name = mysqli_real_escape_string($conn, $name_parts[0]);
-        $last_name = mysqli_real_escape_string($conn, isset($name_parts[1]) ? $name_parts[1] : '');
-        
-        // Generate unique student ID
-        $prefix = 'STU';
-        $year = date('Y');
-        $count_query = "SELECT COUNT(*) as total FROM students WHERE student_id LIKE '{$prefix}{$year}%'";
-        $count_result = mysqli_query($conn, $count_query);
-        $count_row = mysqli_fetch_assoc($count_result);
-        $student_count = intval($count_row['total']) + 1;
-        $student_id_code = $prefix . $year . str_pad($student_count, 4, '0', STR_PAD_LEFT);
-        
-        // Create student record from admission application
-        $email = mysqli_real_escape_string($conn, $app['email']);
-        $phone = mysqli_real_escape_string($conn, $app['mobile']);
-        $gender = mysqli_real_escape_string($conn, $app['gender']);
-        $address = mysqli_real_escape_string($conn, $app['address'] ?? '');
-        
-        $student_insert = "INSERT INTO students (student_id, first_name, last_name, email, phone, gender, address, class_id, admission_date, status) 
-                           VALUES ('$student_id_code', '$first_name', '$last_name', '$email', '$phone', '$gender', '$address', " . ($class_id ? $class_id : 'NULL') . ", CURDATE(), 1)";
-        
-        $student_result = mysqli_query($conn, $student_insert);
-        if($student_result) {
-            $new_student_id = mysqli_insert_id($conn);
-        } else {
-            $new_student_id = NULL;
-            error_log("Student creation error for admission {$id}: " . mysqli_error($conn));
-        }
-        
-        // Update status
-        $query = "UPDATE admission_applications SET status = 'Approved' WHERE id = $id";
-        if(mysqli_query($conn, $query)) {
-            // Generate receipt number
-            $receipt_no = 'RCP' . date('Ymd') . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
-            
-            // Get or create "Admission Fee" fee head
-            $fee_head_query = "SELECT id FROM fees_head WHERE fee_name = 'Admission Fee' LIMIT 1";
-            $fee_head_result = mysqli_query($conn, $fee_head_query);
-            
-            if(mysqli_num_rows($fee_head_result) > 0) {
-                $fee_head = mysqli_fetch_assoc($fee_head_result);
-                $fee_head_id = $fee_head['id'];
-            } else {
-                // Create Admission Fee head if doesn't exist
-                $create_fee_head = "INSERT INTO fees_head (fee_name, description, is_mandatory) VALUES ('Admission Fee', 'One-time admission fee', 1)";
-                if(mysqli_query($conn, $create_fee_head)) {
-                    $fee_head_id = mysqli_insert_id($conn);
-                } else {
-                    $fee_head_id = 1; // fallback to first fee head
-                }
-            }
-            
-            // Insert application fee into fee_collections with student_id
-            $payment_method = !empty($app['payment_method']) ? $app['payment_method'] : 'Cash';
-            
-            // Build the fee insertion query with proper NULL handling
-            if($new_student_id) {
-                $fee_insert = "INSERT INTO fee_collections (student_id, fee_head_id, amount, paid_amount, due_amount, payment_date, payment_method, receipt_no, status, created_at) 
-                               VALUES ($new_student_id, $fee_head_id, " . floatval($app['application_fee']) . ", " . floatval($app['application_fee']) . ", 0, CURDATE(), '$payment_method', '$receipt_no', 'Paid', NOW())";
-            } else {
-                $fee_insert = "INSERT INTO fee_collections (student_id, fee_head_id, amount, paid_amount, due_amount, payment_date, payment_method, receipt_no, status, created_at) 
-                               VALUES (NULL, $fee_head_id, " . floatval($app['application_fee']) . ", " . floatval($app['application_fee']) . ", 0, CURDATE(), '$payment_method', '$receipt_no', 'Paid', NOW())";
-            }
-            
-            if(!mysqli_query($conn, $fee_insert)) {
-                // If insertion fails, log the error but don't stop the approval
-                error_log("Fee insertion error: " . mysqli_error($conn));
-            } else {
-                // Update admission record to mark fee as recorded
-                mysqli_query($conn, "UPDATE admission_applications SET fee_recorded = 1 WHERE id = $id");
-            }
-            
-            // Send approval SMS to student
-            $student_message = "Dear " . $app['full_name'] . ",\n\nCongratulations! Your admission has been APPROVED. Your Student ID: " . $student_id_code . "\n\nCoachingPro Admin";
-            sendSMS($app['mobile'], $student_message);
-            
-            // Send approval SMS to parent
-            $parent_message = "Dear " . $app['parent_name'] . ",\n\nYour ward's admission has been APPROVED. Student ID: " . $student_id_code . "\n\nCoachingPro Admin";
-            sendSMS($app['parent_phone'], $parent_message);
-            
-            $_SESSION['success'] = "Application approved successfully! Student ID: " . $student_id_code . " | Admission fee recorded.";
-        }
+    $query = "UPDATE admission_applications SET status = 'Approved' WHERE id = $id";
+    if(mysqli_query($conn, $query)) {
+        $_SESSION['success'] = "Application approved successfully.";
+    } else {
+        $_SESSION['error'] = "Failed to approve application. Please try again.";
     }
 }
 
@@ -150,7 +65,7 @@ if(isset($_POST['reject'])) {
     $id = mysqli_real_escape_string($conn, $_POST['id']);
     
     // Get application details
-    $app_query = "SELECT full_name, mobile, parent_name, parent_phone FROM admission_applications WHERE id = $id";
+    $app_query = "SELECT full_name, email, mobile, parent_name, parent_email, parent_phone FROM admission_applications WHERE id = $id";
     $app_result = mysqli_query($conn, $app_query);
     $app = mysqli_fetch_assoc($app_result);
     
@@ -165,9 +80,60 @@ if(isset($_POST['reject'])) {
             // Send rejection SMS to parent
             $parent_message = "Dear " . $app['parent_name'] . ",\n\nWe regret to inform you that the admission application has been rejected. Please contact us for more information.\n\nCoachingPro Admin";
             sendSMS($app['parent_phone'], $parent_message);
+
+            // Send rejection email to student
+            $rejection_subject = 'Admission Application Update';
+            $rejection_body_student = "Dear " . $app['full_name'] . ",\n\nWe regret to inform you that your admission application was not approved.\n\nFor more details, please contact the administration.\n\nThank you.\nCoachingPro Administration";
+            sendEmail($app['email'], $rejection_subject, $rejection_body_student);
+
+            // Send rejection email to parent
+            $rejection_body_parent = "Dear " . $app['parent_name'] . ",\n\nWe regret to inform you that your ward's admission application was not approved.\n\nFor more details, please contact the administration.\n\nThank you.\nCoachingPro Administration";
+            sendEmail($app['parent_email'], $rejection_subject, $rejection_body_parent);
             
-            $_SESSION['success'] = "Application rejected! SMS sent to student and parent.";
+            $_SESSION['success'] = "Application rejected! Notifications sent to student and parent.";
         }
+    }
+}
+
+// Handle edit application
+if(isset($_POST['edit_admission'])) {
+    $id = mysqli_real_escape_string($conn, $_POST['id']);
+    $full_name = mysqli_real_escape_string($conn, $_POST['full_name']);
+    $gender = mysqli_real_escape_string($conn, $_POST['gender']);
+    $mobile = mysqli_real_escape_string($conn, $_POST['mobile']);
+    $email = mysqli_real_escape_string($conn, $_POST['email']);
+    $address = mysqli_real_escape_string($conn, $_POST['address']);
+    $parent_name = mysqli_real_escape_string($conn, $_POST['parent_name']);
+    $parent_email = mysqli_real_escape_string($conn, $_POST['parent_email']);
+    $parent_phone = mysqli_real_escape_string($conn, $_POST['parent_phone']);
+    $program = mysqli_real_escape_string($conn, $_POST['program']);
+    $group = mysqli_real_escape_string($conn, $_POST['group']);
+    $monthly_fee = floatval($_POST['monthly_fee']);
+    $payment_method = mysqli_real_escape_string($conn, $_POST['payment_method']);
+    $transaction_id = mysqli_real_escape_string($conn, $_POST['transaction_id']);
+    $sender_number = mysqli_real_escape_string($conn, $_POST['sender_number']);
+
+    $update_query = "UPDATE admission_applications SET 
+        full_name = '$full_name',
+        gender = '$gender',
+        mobile = '$mobile',
+        email = '$email',
+        address = '$address',
+        parent_name = '$parent_name',
+        parent_email = '$parent_email',
+        parent_phone = '$parent_phone',
+        program = '$program',
+        `group` = '$group',
+        monthly_fee = $monthly_fee,
+        payment_method = '$payment_method',
+        transaction_id = '$transaction_id',
+        sender_number = '$sender_number'
+        WHERE id = $id";
+
+    if(mysqli_query($conn, $update_query)) {
+        $_SESSION['success'] = "Application updated successfully.";
+    } else {
+        $_SESSION['error'] = "Failed to update application. Please try again.";
     }
 }
 
@@ -177,53 +143,6 @@ if(isset($_POST['delete'])) {
     $query = "DELETE FROM admission_applications WHERE id = $id";
     if(mysqli_query($conn, $query)) {
         $_SESSION['success'] = "Application deleted successfully!";
-    }
-}
-
-// Backfill: Create students for approved admissions that don't have students yet
-$backfill_query = "SELECT aa.id, aa.full_name, aa.email, aa.mobile, aa.gender, aa.address, aa.program 
-                   FROM admission_applications aa
-                   LEFT JOIN fee_collections fc ON aa.id = fc.id
-                   LEFT JOIN students s ON aa.mobile = s.phone
-                   WHERE aa.status = 'Approved' AND s.id IS NULL
-                   LIMIT 10";  // Limit to prevent long execution
-$backfill_result = mysqli_query($conn, $backfill_query);
-
-if(mysqli_num_rows($backfill_result) > 0) {
-    while($app = mysqli_fetch_assoc($backfill_result)) {
-        // Get class_id based on program
-        $prog = mysqli_real_escape_string($conn, $app['program']);
-        $class_q = "SELECT id FROM classes WHERE class_name = '$prog' LIMIT 1";
-        $class_r = mysqli_query($conn, $class_q);
-        $class_d = mysqli_fetch_assoc($class_r);
-        $cls_id = $class_d ? $class_d['id'] : NULL;
-        
-        // Generate student ID
-        $yr = date('Y');
-        $cnt_q = "SELECT COUNT(*) as total FROM students WHERE student_id LIKE 'STU{$yr}%'";
-        $cnt_r = mysqli_query($conn, $cnt_q);
-        $cnt_row = mysqli_fetch_assoc($cnt_r);
-        $cnt = intval($cnt_row['total']) + 1;
-        $std_id = 'STU' . $yr . str_pad($cnt, 4, '0', STR_PAD_LEFT);
-        
-        // Parse name
-        $parts = explode(' ', trim($app['full_name']), 2);
-        $fname = mysqli_real_escape_string($conn, $parts[0]);
-        $lname = mysqli_real_escape_string($conn, isset($parts[1]) ? $parts[1] : '');
-        $email = mysqli_real_escape_string($conn, $app['email']);
-        $phone = mysqli_real_escape_string($conn, $app['mobile']);
-        $gen = mysqli_real_escape_string($conn, $app['gender']);
-        $addr = mysqli_real_escape_string($conn, $app['address'] ?? '');
-        
-        // Create student
-        $std_insert = "INSERT INTO students (student_id, first_name, last_name, email, phone, gender, address, class_id, admission_date, status) 
-                       VALUES ('$std_id', '$fname', '$lname', '$email', '$phone', '$gen', '$addr', " . ($cls_id ? $cls_id : 'NULL') . ", CURDATE(), 1)";
-        
-        if(mysqli_query($conn, $std_insert)) {
-            $new_std_id = mysqli_insert_id($conn);
-            // Update fee_collections with student_id
-            mysqli_query($conn, "UPDATE fee_collections SET student_id = $new_std_id WHERE student_id IS NULL AND fee_head_id IN (SELECT id FROM fees_head WHERE fee_name = 'Admission Fee') AND created_at >= DATE_SUB(NOW(), INTERVAL 1 WEEK) LIMIT 1");
-        }
     }
 }
 
@@ -621,6 +540,7 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
             </div>
 
             <!-- Applications Table -->
+           
             <div class="table-container">
                 <?php if(!empty($applications)): ?>
                     <table class="table table-hover">
@@ -631,8 +551,12 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                 <th>Mobile</th>
                                 <th>Email</th>
                                 <th>Program</th>
+                                <th>Group</th>
+                                <th>Monthly Fee</th>
+                                <th>Transaction ID</th>
                                 <th>Parent Name</th>
                                 <th>Parent Email</th>
+                                <th>Txn Sender</th>
                                 <th>Status</th>
                                 <th>Date</th>
                                 <th>Action</th>
@@ -646,8 +570,12 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                     <td><?php echo htmlspecialchars($app['mobile']); ?></td>
                                     <td><?php echo htmlspecialchars($app['email']); ?></td>
                                     <td><?php echo htmlspecialchars($app['program']); ?></td>
+                                    <td><?php echo htmlspecialchars($app['group']); ?></td>
+                                    <td>৳<?php echo number_format($app['monthly_fee'], 2); ?></td>
+                                    <td><?php echo htmlspecialchars($app['transaction_id'] ?? 'N/A'); ?></td>
                                     <td><?php echo htmlspecialchars($app['parent_name']); ?></td>
                                     <td><small><?php echo htmlspecialchars($app['parent_email']); ?></small></td>
+                                    <td><?php echo htmlspecialchars($app['sender_number'] ?? 'N/A'); ?></td>
                                     <td>
                                         <span class="badge <?php echo strtolower($app['status']); ?>">
                                             <?php echo $app['status']; ?>
@@ -656,6 +584,10 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                     <td><small><?php echo date('d M Y', strtotime($app['created_at'])); ?></small></td>
                                     <td>
                                         <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button" class="btn btn-primary" data-bs-toggle="modal" 
+                                                    data-bs-target="#editModal<?php echo $app['id']; ?>" title="Edit">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
                                             <button type="button" class="btn btn-info" data-bs-toggle="modal" 
                                                     data-bs-target="#viewModal<?php echo $app['id']; ?>" title="View">
                                                 <i class="fas fa-eye"></i>
@@ -724,6 +656,7 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                                         <h6 class="text-muted">Payment Details</h6>
                                                         <p><strong>Payment Method:</strong> <?php echo htmlspecialchars($app['payment_method']); ?></p>
                                                         <p><strong>Transaction ID:</strong> <?php echo htmlspecialchars($app['transaction_id']); ?></p>
+                                                        <p><strong>Sender Number:</strong> <?php echo htmlspecialchars($app['sender_number'] ?? 'N/A'); ?></p>
                                                         <p><strong>Application Fee:</strong> ৳<?php echo number_format($app['application_fee'], 2); ?></p>
                                                     </div>
                                                 </div>
@@ -738,6 +671,102 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                             <div class="modal-footer">
                                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Edit Modal -->
+                                <div class="modal fade" id="editModal<?php echo $app['id']; ?>" tabindex="-1">
+                                    <div class="modal-dialog modal-lg">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title"><i class="fas fa-edit me-2"></i>Edit Application - <?php echo htmlspecialchars($app['full_name']); ?></h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <form method="POST">
+                                                <input type="hidden" name="id" value="<?php echo $app['id']; ?>">
+                                                <input type="hidden" name="edit_admission" value="1">
+                                                <div class="modal-body">
+                                                    <div class="row mb-3">
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Full Name</label>
+                                                            <input type="text" class="form-control" name="full_name" value="<?php echo htmlspecialchars($app['full_name']); ?>" required>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Gender</label>
+                                                            <select class="form-select" name="gender" required>
+                                                                <option value="Male" <?php echo $app['gender'] === 'Male' ? 'selected' : ''; ?>>Male</option>
+                                                                <option value="Female" <?php echo $app['gender'] === 'Female' ? 'selected' : ''; ?>>Female</option>
+                                                                <option value="Other" <?php echo $app['gender'] === 'Other' ? 'selected' : ''; ?>>Other</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div class="row mb-3">
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Mobile</label>
+                                                            <input type="text" class="form-control" name="mobile" value="<?php echo htmlspecialchars($app['mobile']); ?>" required>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Email</label>
+                                                            <input type="email" class="form-control" name="email" value="<?php echo htmlspecialchars($app['email']); ?>" required>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Address</label>
+                                                        <textarea class="form-control" name="address" rows="2" required><?php echo htmlspecialchars($app['address']); ?></textarea>
+                                                    </div>
+                                                    <hr>
+                                                    <div class="row mb-3">
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Parent Name</label>
+                                                            <input type="text" class="form-control" name="parent_name" value="<?php echo htmlspecialchars($app['parent_name']); ?>" required>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Parent Email</label>
+                                                            <input type="email" class="form-control" name="parent_email" value="<?php echo htmlspecialchars($app['parent_email']); ?>" required>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label class="form-label">Parent Phone</label>
+                                                        <input type="text" class="form-control" name="parent_phone" value="<?php echo htmlspecialchars($app['parent_phone']); ?>" required>
+                                                    </div>
+                                                    <hr>
+                                                    <div class="row mb-3">
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Program</label>
+                                                            <input type="text" class="form-control" name="program" value="<?php echo htmlspecialchars($app['program']); ?>" required>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Group</label>
+                                                            <input type="text" class="form-control" name="group" value="<?php echo htmlspecialchars($app['group']); ?>" required>
+                                                        </div>
+                                                    </div>
+                                                    <div class="row mb-3">
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Monthly Fee</label>
+                                                            <input type="number" step="0.01" class="form-control" name="monthly_fee" value="<?php echo htmlspecialchars($app['monthly_fee']); ?>" required>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Payment Method</label>
+                                                            <input type="text" class="form-control" name="payment_method" value="<?php echo htmlspecialchars($app['payment_method']); ?>" required>
+                                                        </div>
+                                                    </div>
+                                                    <div class="row mb-3">
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Transaction ID</label>
+                                                            <input type="text" class="form-control" name="transaction_id" value="<?php echo htmlspecialchars($app['transaction_id']); ?>">
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Sender Number</label>
+                                                            <input type="text" class="form-control" name="sender_number" value="<?php echo htmlspecialchars($app['sender_number']); ?>">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                    <button type="submit" class="btn btn-success">Save Changes</button>
+                                                </div>
+                                            </form>
                                         </div>
                                     </div>
                                 </div>

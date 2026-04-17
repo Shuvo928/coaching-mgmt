@@ -22,12 +22,12 @@ $teacher = mysqli_fetch_assoc($teacher_result);
 $teacher_id = $teacher['id'];
 
 // Get teacher's class routine (weekly schedule)
-$routine_query = "SELECT ts.*, c.class_name, s.subject_name, s.subject_code
-                  FROM teacher_subjects ts
-                  JOIN classes c ON ts.class_id = c.id
-                  JOIN subjects s ON ts.subject_id = s.id
-                  WHERE ts.teacher_id = '$teacher_id'
-                  ORDER BY c.class_name, s.subject_name";
+$routine_query = "SELECT cr.*, c.class_name, s.subject_name, s.subject_code
+                  FROM class_routine cr
+                  JOIN classes c ON cr.class_id = c.id
+                  JOIN subjects s ON cr.subject_id = s.id
+                  WHERE cr.teacher_id = '$teacher_id'
+                  ORDER BY FIELD(cr.day,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), cr.start_time";
 $routine_result = mysqli_query($conn, $routine_query);
 
 // Get exam types for result management (using exam_routine)
@@ -517,6 +517,25 @@ if(isset($_POST['add_result'])) {
             </div>
         <?php endif; ?>
 
+        <!-- Preferred Subjects Section -->
+        <div class="card" id="preferred-subjects">
+            <div class="card-header">
+                <h5><i class="fas fa-book"></i> Preferred Subjects</h5>
+            </div>
+            <div class="card-body">
+                <?php if(!empty(trim($teacher['assigned_subjects']))): ?>
+                    <?php
+                        $subjects = array_filter(array_map('trim', explode(',', $teacher['assigned_subjects'])));
+                    ?>
+                    <p class="text-muted mb-0">
+                        <?php echo htmlspecialchars(implode(', ', $subjects)); ?>
+                    </p>
+                <?php else: ?>
+                    <p class="text-muted mb-0">No preferred subjects assigned yet.</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <!-- Class Routine Section -->
         <div class="card" id="routine">
             <div class="card-header">
@@ -540,7 +559,7 @@ if(isset($_POST['add_result'])) {
                             <?php 
                             $current_day = '';
                             while($routine = mysqli_fetch_assoc($routine_result)): 
-                                $day = date('l', strtotime($routine['start_time']));
+                                $day = htmlspecialchars($routine['day']);
                             ?>
                                 <tr>
                                     <td>
@@ -554,7 +573,7 @@ if(isset($_POST['add_result'])) {
                                         <strong><?php echo htmlspecialchars($routine['subject_name']); ?></strong>
                                         <br><small class="text-muted"><?php echo htmlspecialchars($routine['subject_code']); ?></small>
                                     </td>
-                                    <td><?php echo $routine['start_time_formatted'] . ' - ' . $routine['end_time_formatted']; ?></td>
+                                    <td><?php echo htmlspecialchars(date('h:i A', strtotime($routine['start_time'])) . ' - ' . date('h:i A', strtotime($routine['end_time']))); ?></td>
                                     <td><?php echo htmlspecialchars($routine['room'] ?? 'TBA'); ?></td>
                                 </tr>
                             <?php endwhile; ?>

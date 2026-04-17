@@ -13,6 +13,53 @@ function generateTeacherID($conn) {
     return $prefix . $year . str_pad($count, 3, '0', STR_PAD_LEFT);
 }
 
+function autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects) {
+    $assigned_subjects = trim($assigned_subjects);
+    if($assigned_subjects === '') {
+        return;
+    }
+
+    $mapping = [
+        'bangla' => ['bangla 1st paper', 'bangla 2nd paper'],
+        'english' => ['english 1st paper', 'english 2nd paper'],
+        'math' => ['general mathematics', 'higher mathematics', 'business mathematics'],
+        'mathematics' => ['general mathematics', 'higher mathematics', 'business mathematics'],
+        'general mathematics' => ['general mathematics'],
+        'higher mathematics' => ['higher mathematics'],
+        'business mathematics' => ['business mathematics'],
+    ];
+
+    $terms = preg_split('/[\n\r,;]+/', strtolower($assigned_subjects));
+    $terms = array_filter(array_map('trim', $terms));
+    $terms = array_unique($terms);
+
+    foreach($terms as $term) {
+        if($term === '') {
+            continue;
+        }
+
+        $searchTerms = $mapping[$term] ?? [$term];
+        foreach($searchTerms as $searchTerm) {
+            $keyword = mysqli_real_escape_string($conn, $searchTerm);
+            $subject_query = mysqli_query($conn, "SELECT id, class_id FROM subjects WHERE LOWER(subject_name) LIKE '%$keyword%'");
+            if(!$subject_query) {
+                continue;
+            }
+
+            while($subject = mysqli_fetch_assoc($subject_query)) {
+                $subject_id = intval($subject['id']);
+                $check_query = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id LIMIT 1";
+                $check_result = mysqli_query($conn, $check_query);
+                if($check_result && mysqli_num_rows($check_result) === 0) {
+                    $class_id = intval($subject['class_id']);
+                    $insert_query = "INSERT INTO teacher_subjects (teacher_id, subject_id, class_id) VALUES ($teacher_id, $subject_id, " . ($class_id ? $class_id : 'NULL') . ")";
+                    mysqli_query($conn, $insert_query);
+                }
+            }
+        }
+    }
+}
+
 if(isset($_POST['submit'])) {
     $teacher_id = $_POST['teacher_id'] ?? '';
     $first_name = mysqli_real_escape_string($conn, $_POST['first_name']);
@@ -20,7 +67,7 @@ if(isset($_POST['submit'])) {
     $email = mysqli_real_escape_string($conn, $_POST['email']);
     $phone = mysqli_real_escape_string($conn, $_POST['phone']);
     $qualification = mysqli_real_escape_string($conn, $_POST['qualification']);
-    $interested_subjects = mysqli_real_escape_string($conn, $_POST['interested_subjects']);
+    $assigned_subjects = mysqli_real_escape_string($conn, $_POST['assigned_subjects']);
     $joining_date = $_POST['joining_date'];
     $address = mysqli_real_escape_string($conn, $_POST['address']);
     $username = mysqli_real_escape_string($conn, $_POST['username']);
@@ -66,14 +113,17 @@ if(isset($_POST['submit'])) {
             
             // Insert into teachers table
             $teacher_query = "INSERT INTO teachers (user_id, teacher_id, first_name, last_name, email, 
-                              phone, qualification, interested_subjects, joining_date, address, photo, status) 
+                              phone, qualification, assigned_subjects, joining_date, address, photo, status) 
                               VALUES ($user_id, '$teacher_unique_id', '$first_name', '$last_name', 
-                              '$email', '$phone', '$qualification', '$interested_subjects', '$joining_date', 
+                              '$email', '$phone', '$qualification', '$assigned_subjects', '$joining_date', 
                               '$address', '$photo', 1)";
             
             if(!mysqli_query($conn, $teacher_query)) {
                 throw new Exception("Error adding teacher details");
             }
+
+            $inserted_teacher_id = mysqli_insert_id($conn);
+            autoAssignPreferredSubjects($conn, $inserted_teacher_id, $assigned_subjects);
             
             mysqli_commit($conn);
             $_SESSION['success'] = "Teacher added successfully! Teacher ID: " . $teacher_unique_id;
@@ -106,7 +156,7 @@ if(isset($_POST['submit'])) {
                          email = '$email',
                          phone = '$phone',
                          qualification = '$qualification',
-                         interested_subjects = '$interested_subjects',
+                         assigned_subjects = '$assigned_subjects',
                          joining_date = '$joining_date',
                          address = '$address',
                          photo = '$photo'
@@ -126,6 +176,8 @@ if(isset($_POST['submit'])) {
                 mysqli_query($conn, "UPDATE users SET password = '$hashed_password' 
                                      WHERE id = {$user['user_id']}");
             }
+
+            autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects);
             
             $_SESSION['success'] = "Teacher updated successfully!";
         } else {

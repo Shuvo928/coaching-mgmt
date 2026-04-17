@@ -6,11 +6,34 @@ require_once '../includes/db.php';
 function generateStudentID($conn) {
     $prefix = 'STU';
     $year = date('Y');
-    $query = "SELECT COUNT(*) as total FROM students WHERE student_id LIKE '$prefix$year%'";
+    $pattern = $prefix . $year . '%';
+
+    $query = "SELECT student_id FROM students WHERE student_id LIKE '$pattern' ORDER BY student_id DESC LIMIT 1";
     $result = mysqli_query($conn, $query);
-    $row = mysqli_fetch_assoc($result);
-    $count = $row['total'] + 1;
-    return $prefix . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+
+    if($result && mysqli_num_rows($result) > 0) {
+        $row = mysqli_fetch_assoc($result);
+        $lastId = $row['student_id'];
+        $lastNumber = intval(substr($lastId, strlen($prefix . $year)));
+        $count = $lastNumber + 1;
+    } else {
+        $count = 1;
+    }
+
+    do {
+        $newId = $prefix . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+        $checkQuery = "SELECT id FROM students WHERE student_id = '$newId' LIMIT 1";
+        $checkResult = mysqli_query($conn, $checkQuery);
+        $count++;
+    } while($checkResult && mysqli_num_rows($checkResult) > 0);
+
+    return $newId;
+}
+
+function redirectWithError($message) {
+    $_SESSION['error'] = $message;
+    header("Location: student-management.php");
+    exit();
 }
 
 if(isset($_POST['submit'])) {
@@ -19,77 +42,159 @@ if(isset($_POST['submit'])) {
     $last_name = mysqli_real_escape_string($conn, $_POST['last_name']);
     $father_name = mysqli_real_escape_string($conn, $_POST['father_name']);
     $mother_name = mysqli_real_escape_string($conn, $_POST['mother_name']);
-    $email = mysqli_real_escape_string($conn, $_POST['email']);
+    $email = mysqli_real_escape_string($conn, $_POST['parent_email']);
     $phone = mysqli_real_escape_string($conn, $_POST['phone']);
     $dob = $_POST['dob'];
-    $gender = $_POST['gender'];
-    $class_id = $_POST['class_id'];
-    $roll_number = $_POST['roll_number'];
-    $batch_no = $_POST['batch_no'];
+    $gender = $_POST['gender'] ?: null;
+    $class_label = mysqli_real_escape_string($conn, $_POST['class_label']);
     $admission_date = $_POST['admission_date'];
     $address = mysqli_real_escape_string($conn, $_POST['address']);
     $username = mysqli_real_escape_string($conn, $_POST['username']);
     $password = $_POST['password'];
-    
+    $parent_email_verified = isset($_POST['parent_email_verified']) ? $_POST['parent_email_verified'] : '0';
+
+    // Validation
+    if(empty($first_name) || empty($last_name) || empty($email) || empty($phone) || empty($username) || empty($class_label)) {
+        redirectWithError('Please fill in all required student fields.');
+    }
+
+    if(empty($student_id)) {
+        if($parent_email_verified !== '1' || !isset($_SESSION['parent_email_verified']) || $_SESSION['parent_email_verified'] !== 1 || !isset($_SESSION['parent_email_to_verify']) || $_SESSION['parent_email_to_verify'] !== $email) {
+            redirectWithError('Please verify the parent email with OTP before adding a new student.');
+        }
+    }
+
+    if(empty($student_id) && empty($password)) {
+        redirectWithError('Password is required when adding a new student.');
+    }
+
+    if(!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        redirectWithError('Please enter a valid email address.');
+    }
+
+    // Ensure unique username/email for the account
+    $existingUserQuery = "SELECT id FROM users WHERE (username = '$username' OR email = '$email')";
+    if(!empty($student_id)) {
+        $existingUserQuery .= " AND id <> (SELECT user_id FROM students WHERE id = $student_id)";
+    }
+    $existingUserResult = mysqli_query($conn, $existingUserQuery);
+    if(mysqli_num_rows($existingUserResult) > 0) {
+        redirectWithError('The username or email is already in use. Please choose a different username/email.');
+    }
+
+    // Ensure unique student email if provided
+    $existingStudentQuery = "SELECT id FROM students WHERE email = '$email'";
+    if(!empty($student_id)) {
+        $existingStudentQuery .= " AND id <> $student_id";
+    }
+    $existingStudentResult = mysqli_query($conn, $existingStudentQuery);
+    if(mysqli_num_rows($existingStudentResult) > 0) {
+        redirectWithError('A student with this email already exists.');
+    }
+
     // Handle photo upload
     $photo = '';
     if(isset($_FILES['photo']) && $_FILES['photo']['error'] == 0) {
         $allowed = ['jpg', 'jpeg', 'png', 'gif'];
         $filename = $_FILES['photo']['name'];
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-        
+
         if(in_array($ext, $allowed)) {
             $photo = time() . '_' . $filename;
             $upload_path = '../uploads/student-photos/' . $photo;
-            
+
             if(!move_uploaded_file($_FILES['photo']['tmp_name'], $upload_path)) {
-                $_SESSION['error'] = "Failed to upload photo!";
-                header("Location: student-management.php");
-                exit();
+                redirectWithError('Failed to upload photo.');
             }
+        } else {
+            redirectWithError('Only JPG, PNG, and GIF files are allowed for photo upload.');
         }
     }
-    
+
     if(empty($student_id)) {
         // Insert new student
         $student_unique_id = generateStudentID($conn);
-        
+
         // Start transaction
         mysqli_begin_transaction($conn);
-        
+
         try {
             // Insert into users table
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
             $user_query = "INSERT INTO users (username, password, email, role, status) 
                           VALUES ('$username', '$hashed_password', '$email', 'student', 1)";
-            
+
             if(!mysqli_query($conn, $user_query)) {
-                throw new Exception("Error creating user account");
+                throw new Exception('Error creating user account: ' . mysqli_error($conn));
             }
-            
+
             $user_id = mysqli_insert_id($conn);
-            
-            // Insert into students table
-            $student_query = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, 
-                              mother_name, email, phone, dob, gender, address, photo, class_id, 
-                              batch_no, roll_number, admission_date, status) 
-                              VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', 
-                              '$father_name', '$mother_name', '$email', '$phone', '$dob', '$gender', 
-                              '$address', '$photo', $class_id, '$batch_no', '$roll_number', 
-                              '$admission_date', 1)";
-            
-            if(!mysqli_query($conn, $student_query)) {
-                throw new Exception("Error adding student details");
+
+            // Prepare optional field values for SQL
+            $class_id = null;
+            $class_label_value = trim($class_label);
+            if(!empty($class_label_value)) {
+                $parts = explode('-', $class_label_value, 2);
+                $class_name = trim($parts[0]);
+                $class_section = isset($parts[1]) ? trim($parts[1]) : '';
+                $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' AND section = '$class_section' LIMIT 1";
+                $class_result = mysqli_query($conn, $class_query);
+                if($class_result && mysqli_num_rows($class_result) > 0) {
+                    $class_row = mysqli_fetch_assoc($class_result);
+                    $class_id = $class_row['id'];
+                } else {
+                    $insert_class = "INSERT INTO classes (class_name, section) VALUES ('$class_name', '$class_section')";
+                    if(mysqli_query($conn, $insert_class)) {
+                        $class_id = mysqli_insert_id($conn);
+                    }
+                }
             }
-            
+            $class_id_sql = $class_id ? (int)$class_id : 'NULL';
+            $gender_sql = $gender ? "'" . mysqli_real_escape_string($conn, $gender) . "'" : 'NULL';
+            $dob_sql = !empty($dob) ? "'" . mysqli_real_escape_string($conn, $dob) . "'" : 'NULL';
+            $admission_date_sql = !empty($admission_date) ? "'" . mysqli_real_escape_string($conn, $admission_date) . "'" : 'NULL';
+            $photo_sql = !empty($photo) ? "'" . mysqli_real_escape_string($conn, $photo) . "'" : 'NULL';
+
+            $student_result = false;
+            $student_error = '';
+            $attempts = 0;
+            $maxAttempts = 5;
+
+            while($attempts < $maxAttempts) {
+                $student_unique_id = generateStudentID($conn);
+                $student_query = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, 
+                                  mother_name, email, phone, dob, gender, address, photo, class_id, 
+                                  admission_date, status) 
+                                  VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', 
+                                  '$father_name', '$mother_name', '$email', '$phone', $dob_sql, $gender_sql, 
+                                  '$address', $photo_sql, $class_id_sql, $admission_date_sql, 1)";
+
+                if(mysqli_query($conn, $student_query)) {
+                    $student_result = true;
+                    break;
+                }
+
+                $student_error = mysqli_error($conn);
+                if(strpos($student_error, 'Duplicate entry') === false) {
+                    break;
+                }
+
+                $attempts++;
+            }
+
+            if(!$student_result) {
+                throw new Exception('Error adding student details: ' . $student_error);
+            }
+
             mysqli_commit($conn);
-            $_SESSION['success'] = "Student added successfully! Student ID: " . $student_unique_id;
-            
+            unset($_SESSION['parent_email_otp'], $_SESSION['parent_email_to_verify'], $_SESSION['parent_email_otp_time'], $_SESSION['parent_email_verified']);
+            $_SESSION['success'] = 'Student added successfully! Student ID: ' . $student_unique_id;
+
         } catch(Exception $e) {
             mysqli_rollback($conn);
-            $_SESSION['error'] = "Error: " . $e->getMessage();
+            redirectWithError($e->getMessage());
         }
-        
+
     } else {
         // Update existing student
         // Get current photo
@@ -106,7 +211,34 @@ if(isset($_POST['submit'])) {
             }
         }
         
+        // Prepare optional values for update
+        $dob_sql = !empty($dob) ? "'" . mysqli_real_escape_string($conn, $dob) . "'" : 'NULL';
+        $gender_sql = $gender ? "'" . mysqli_real_escape_string($conn, $gender) . "'" : 'NULL';
+        $class_id_sql = $class_id ? (int)$class_id : 'NULL';
+        $admission_date_sql = !empty($admission_date) ? "'" . mysqli_real_escape_string($conn, $admission_date) . "'" : 'NULL';
+        $photo_sql = !empty($photo) ? "'" . mysqli_real_escape_string($conn, $photo) . "'" : 'NULL';
+
         // Update query
+        $class_id = null;
+        $class_label_value = trim($class_label);
+        if(!empty($class_label_value)) {
+            $parts = explode('-', $class_label_value, 2);
+            $class_name = trim($parts[0]);
+            $class_section = isset($parts[1]) ? trim($parts[1]) : '';
+            $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' AND section = '$class_section' LIMIT 1";
+            $class_result = mysqli_query($conn, $class_query);
+            if($class_result && mysqli_num_rows($class_result) > 0) {
+                $class_row = mysqli_fetch_assoc($class_result);
+                $class_id = $class_row['id'];
+            } else {
+                $insert_class = "INSERT INTO classes (class_name, section) VALUES ('$class_name', '$class_section')";
+                if(mysqli_query($conn, $insert_class)) {
+                    $class_id = mysqli_insert_id($conn);
+                }
+            }
+        }
+        $class_id_sql = $class_id ? (int)$class_id : 'NULL';
+
         $update_query = "UPDATE students SET 
                          first_name = '$first_name',
                          last_name = '$last_name',
@@ -114,14 +246,12 @@ if(isset($_POST['submit'])) {
                          mother_name = '$mother_name',
                          email = '$email',
                          phone = '$phone',
-                         dob = '$dob',
-                         gender = '$gender',
+                         dob = $dob_sql,
+                         gender = $gender_sql,
                          address = '$address',
-                         photo = '$photo',
-                         class_id = $class_id,
-                         batch_no = '$batch_no',
-                         roll_number = '$roll_number',
-                         admission_date = '$admission_date'
+                         photo = $photo_sql,
+                         class_id = $class_id_sql,
+                         admission_date = $admission_date_sql
                          WHERE id = $student_id";
         
         if(mysqli_query($conn, $update_query)) {

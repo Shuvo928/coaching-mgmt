@@ -2,84 +2,28 @@
 session_start();
 require_once 'includes/db.php';
 
-// DEMO MODE - Set to TRUE for testing, FALSE for production
-$DEMO_MODE = true;
-$DEMO_OTP = '123456';
-
-// Handle OTP sending
-if(isset($_POST['send_otp'])) {
-    $mobile = mysqli_real_escape_string($conn, $_POST['mobile']);
-    
-    // Generate 6-digit OTP or use demo OTP
-    if($DEMO_MODE) {
-        $otp = $DEMO_OTP;
-    } else {
-        $otp = rand(100000, 999999);
+function ensureSenderNumberColumn($conn) {
+    $check = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'sender_number'");
+    if($check && mysqli_num_rows($check) === 0) {
+        mysqli_query($conn, "ALTER TABLE admission_applications ADD COLUMN sender_number VARCHAR(20) NULL AFTER payment_method");
     }
-    
-    // Store OTP in session
-    $_SESSION['otp'] = $otp;
-    $_SESSION['otp_mobile'] = $mobile;
-    $_SESSION['otp_time'] = time();
-    
-    if($DEMO_MODE) {
-        // Demo mode - just return success without sending SMS
-        $response = ['success' => true, 'message' => 'OTP sent successfully (Demo: Use 123456)', 'demo' => true, 'demo_otp' => $DEMO_OTP];
-        echo json_encode($response);
-        exit();
-    }
-    
-    // Production mode - Send real SMS via API
-    $api_key = "K6uCeGByYLJRtIIZRzQ";
-    $mobile_formatted = "88" . $mobile; // convert 017xxxx to 88017xxxx
-    $message = "Your CoachingPro OTP is: " . $otp;
-
-    $url = "http://bulksmsbd.net/api/smsapi";
-
-    $data = [
-        "api_key" => $api_key,
-        "type" => "text",
-        "number" => $mobile_formatted,
-        "senderid" => "8809601000500",
-        "message" => $message
-    ];
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-    $response_api = curl_exec($ch);
-    curl_close($ch);
-
-    $response = ['success' => true, 'message' => 'OTP sent successfully'];
-    echo json_encode($response);
-    exit();
-    
-}
-
-// Verify OTP
-if(isset($_POST['verify_otp'])) {
-    $entered_otp = $_POST['otp'];
-    
-    if(isset($_SESSION['otp']) && $entered_otp == $_SESSION['otp'] && (time() - $_SESSION['otp_time']) < 300) {
-        $_SESSION['otp_verified'] = true;
-        $response = ['success' => true, 'message' => 'OTP verified successfully'];
-    } else {
-        $response = ['success' => false, 'message' => 'Invalid or expired OTP'];
-    }
-    echo json_encode($response);
-    exit();
 }
 
 // Handle form submission
 if(isset($_POST['submit_admission'])) {
-    if(!isset($_SESSION['otp_verified']) || $_SESSION['otp_verified'] !== true) {
-        $error = "Please verify your mobile number first";
+    ensureSenderNumberColumn($conn);
+    $full_name = mysqli_real_escape_string($conn, $_POST['full_name']);
+    $gender = mysqli_real_escape_string($conn, $_POST['gender']);
+    $mobile = mysqli_real_escape_string($conn, $_POST['mobile']);
+    $email = mysqli_real_escape_string($conn, trim($_POST['email']));
+    $address = mysqli_real_escape_string($conn, $_POST['address']);
+    $program = mysqli_real_escape_string($conn, $_POST['program']);
+    $group = mysqli_real_escape_string($conn, $_POST['group']);
+
+    $checkEmail = mysqli_query($conn, "SELECT id FROM admission_applications WHERE email = '$email' LIMIT 1");
+    if($checkEmail && mysqli_num_rows($checkEmail) > 0) {
+        $error = 'This email is already registered. Please use a different email.';
     } else {
-        $full_name = mysqli_real_escape_string($conn, $_POST['full_name']);
-        $gender = mysqli_real_escape_string($conn, $_POST['gender']);
         $mobile = mysqli_real_escape_string($conn, $_POST['mobile']);
         $email = mysqli_real_escape_string($conn, $_POST['email']);
         $address = mysqli_real_escape_string($conn, $_POST['address']);
@@ -90,6 +34,7 @@ if(isset($_POST['submit_admission'])) {
         $parent_name = mysqli_real_escape_string($conn, $_POST['parent_name']);
         $parent_email = mysqli_real_escape_string($conn, $_POST['parent_email']);
         $parent_phone = mysqli_real_escape_string($conn, $_POST['parent_phone']);
+        $sender_number = mysqli_real_escape_string($conn, $_POST['sender_number']);
         
         // Get monthly fee based on program
         $monthly_fee = 0;
@@ -103,14 +48,15 @@ if(isset($_POST['submit_admission'])) {
         
         $transaction_id = mysqli_real_escape_string($conn, $_POST['transaction_id']);
         $payment_method = mysqli_real_escape_string($conn, $_POST['payment_method']);
+        $sender_number = mysqli_real_escape_string($conn, $_POST['sender_number']);
         $application_fee = 500;
         
         // Generate unique receipt number
         $receipt_no = 'RCP' . date('Ymd') . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
         
         // Insert into database
-        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, parent_name, parent_email, parent_phone, monthly_fee, transaction_id, payment_method, application_fee, receipt_no, status, created_at) 
-                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', '$parent_name', '$parent_email', '$parent_phone', $monthly_fee, '$transaction_id', '$payment_method', $application_fee, '$receipt_no', 'Pending', NOW())";
+        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, parent_name, parent_email, parent_phone, monthly_fee, transaction_id, payment_method, sender_number, application_fee, receipt_no, status, created_at) 
+                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', '$parent_name', '$parent_email', '$parent_phone', $monthly_fee, '$transaction_id', '$payment_method', '$sender_number', $application_fee, '$receipt_no', 'Pending', NOW())";
         
         if(mysqli_query($conn, $query)) {
             $application_id = mysqli_insert_id($conn);
@@ -128,11 +74,10 @@ if(isset($_POST['submit_admission'])) {
                 'application_fee' => $application_fee,
                 'payment_method' => $payment_method,
                 'transaction_id' => $transaction_id,
+                'sender_number' => $sender_number,
                 'submission_date' => date('Y-m-d H:i:s')
             ];
             
-            unset($_SESSION['otp_verified']);
-            unset($_SESSION['otp']);
         } else {
             $error = "Error submitting application: " . mysqli_error($conn);
         }
@@ -989,50 +934,25 @@ $fees = [
                         </div>
                     </div>
 
-                    <!-- Mobile with OTP Verification -->
-                    <div class="otp-section" id="otpSection" data-aos="fade-up">
-                        <?php if($DEMO_MODE): ?>
-                        <div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
-                            <i class="fas fa-flask me-2"></i>
-                            <strong>🧪 Demo Mode Active</strong> - Use OTP: <strong style="font-size: 1.1em; color: #0c63e4;">123456</strong>
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
-                        <?php endif; ?>
-                        <label class="form-label">Mobile Number *</label>
-                        <div class="input-group mb-3">
-                            <span class="input-group-text">+88</span>
-                            <input type="tel" class="form-control" id="mobile" name="mobile" 
-                                   pattern="01[3-9][0-9]{8}" placeholder="01XXXXXXXXX" required>
-                            <button class="btn btn-outline-primary" type="button" id="sendOtpBtn" onclick="sendOTP()">
-                                <i class="fas fa-paper-plane me-2"></i>Send OTP
-                            </button>
-                        </div>
-                        
-                        <div id="otpVerification" style="display: none;">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6" data-aos="fade-right">
+                            <label class="form-label">Mobile Number *</label>
                             <div class="input-group">
-                                <input type="text" class="form-control" id="otp" placeholder="Enter 6-digit OTP" maxlength="6">
-                                <button class="btn btn-success" type="button" onclick="verifyOTP()">
-                                    <i class="fas fa-check me-2"></i>Verify
-                                </button>
-                            </div>
-                            <div class="mt-2">
-                                <span class="timer" id="timer"></span>
-                                <button type="button" class="btn btn-link btn-sm" onclick="resendOTP()">Resend OTP</button>
+                                <span class="input-group-text">+88</span>
+                                <input type="tel" class="form-control" id="mobile" name="mobile" 
+                                       pattern="01[3-9][0-9]{8}" placeholder="01XXXXXXXXX" required>
                             </div>
                         </div>
-                        
-                        <div id="verifiedBadge" style="display: none;" class="mt-2 verified-badge">
-                            <i class="fas fa-check-circle me-2"></i>Mobile number verified
+
+                        <div class="col-md-6" data-aos="fade-left">
+                            <label class="form-label">Email Address *</label>
+                            <input type="email" class="form-control" id="email" name="email" placeholder="name@example.com" required>
+                            <small class="text-muted">Your email is used for communication only.</small>
                         </div>
                     </div>
 
                     <div class="row g-3 mb-3">
-                        <div class="col-md-6" data-aos="fade-right">
-                            <label class="form-label">Email Address *</label>
-                            <input type="email" class="form-control" name="email" required>
-                        </div>
-                        
-                        <div class="col-md-6" data-aos="fade-left">
+                        <div class="col-md-12" data-aos="fade-left">
                             <label class="form-label">Address *</label>
                             <textarea class="form-control" name="address" rows="1" required></textarea>
                         </div>
@@ -1128,6 +1048,12 @@ $fees = [
                             <input type="text" class="form-control" name="transaction_id" id="transaction_id" 
                                    placeholder="Enter transaction ID from your mobile banking app" required>
                             <small class="text-muted">Example: BK1234567890, NG987654321</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Sender Number *</label>
+                            <input type="tel" class="form-control" name="sender_number" id="sender_number" 
+                                   pattern="01[3-9][0-9]{8}" placeholder="01XXXXXXXXX" required>
+                            <small class="text-muted">Enter the mobile number used to send payment.</small>
                         </div>
                     </div>
 
@@ -1242,121 +1168,6 @@ $fees = [
             document.getElementById('displayTotal').innerHTML = '<strong>৳ ' + (monthlyFee + total).toFixed(2) + '</strong>';
         }
 
-        // OTP Variables
-        let otpTimer;
-        let timeLeft = 300;
-
-        // Send OTP
-        function sendOTP() {
-            const mobile = document.getElementById('mobile').value;
-            const mobilePattern = /^01[3-9][0-9]{8}$/;
-            
-            if(!mobilePattern.test(mobile)) {
-                alert('Please enter a valid Bangladeshi mobile number (e.g., 01712345678)');
-                return;
-            }
-            
-            const sendBtn = document.getElementById('sendOtpBtn');
-            sendBtn.disabled = true;
-            sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
-            
-            $.ajax({
-                url: '',
-                type: 'POST',
-                data: {
-                    send_otp: true,
-                    mobile: mobile
-                },
-                dataType: 'json',
-                success: function(response) {
-                    if(response.success) {
-                        document.getElementById('otpVerification').style.display = 'block';
-                        
-                        // Show demo OTP if in demo mode
-                        if(response.demo) {
-                            const demoAlert = `<div class="alert alert-info alert-dismissible fade show" id="demoOtpAlert">
-                                <i class="fas fa-flask me-2"></i><strong>Demo Mode:</strong> Use OTP: <strong style="font-size: 1.2em; color: #0c63e4;">${response.demo_otp}</strong>
-                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                            </div>`;
-                            document.getElementById('otpVerification').insertAdjacentHTML('beforebegin', demoAlert);
-                            alert('✅ OTP sent successfully!\n\nDemo Mode - Use OTP: ' + response.demo_otp);
-                        } else {
-                            alert('✅ OTP sent to your phone');
-                        }
-                        
-                        startTimer(300);
-                    } else {
-                        alert('Failed to send OTP. Please try again.');
-                        sendBtn.disabled = false;
-                        sendBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send OTP';
-                    }
-                },
-                error: function() {
-                    alert('Error sending OTP. Please try again.');
-                    sendBtn.disabled = false;
-                    sendBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send OTP';
-                }
-            });
-        }
-
-        // Verify OTP
-        function verifyOTP() {
-            const otp = document.getElementById('otp').value;
-            
-            if(otp.length !== 6 || isNaN(otp)) {
-                alert('Please enter a valid 6-digit OTP');
-                return;
-            }
-            
-            $.ajax({
-                url: '',
-                type: 'POST',
-                data: {
-                    verify_otp: true,
-                    otp: otp
-                },
-                dataType: 'json',
-                success: function(response) {
-                    if(response.success) {
-                        document.getElementById('otpSection').classList.add('otp-verified');
-                        document.getElementById('otpVerification').style.display = 'none';
-                        document.getElementById('verifiedBadge').style.display = 'block';
-                        document.getElementById('mobile').readOnly = true;
-                        clearInterval(otpTimer);
-                    } else {
-                        alert(response.message);
-                    }
-                }
-            });
-        }
-
-        // Resend OTP
-        function resendOTP() {
-            sendOTP();
-        }
-
-        // Timer function
-        function startTimer(duration) {
-            timeLeft = duration;
-            const timerDisplay = document.getElementById('timer');
-            
-            otpTimer = setInterval(function() {
-                const minutes = Math.floor(timeLeft / 60);
-                const seconds = timeLeft % 60;
-                
-                timerDisplay.textContent = `OTP expires in: ${minutes}:${seconds.toString().padStart(2, '0')}`;
-                
-                if(timeLeft <= 0) {
-                    clearInterval(otpTimer);
-                    timerDisplay.textContent = 'OTP expired. Please request again.';
-                    document.getElementById('sendOtpBtn').disabled = false;
-                    document.getElementById('sendOtpBtn').innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send OTP';
-                }
-                
-                timeLeft--;
-            }, 1000);
-        }
-
         // Select payment method
         function selectPaymentMethod(method) {
             document.querySelectorAll('.payment-method-card').forEach(card => {
@@ -1387,11 +1198,6 @@ $fees = [
             
             if(!selectedGroup) {
                 alert('Please select your group');
-                return false;
-            }
-            
-            if(!document.querySelector('.otp-verified')) {
-                alert('Please verify your mobile number first');
                 return false;
             }
             

@@ -34,13 +34,13 @@ $result = mysqli_query($conn, "SELECT COUNT(*) as total FROM classes");
 $stats['total_classes'] = mysqli_fetch_assoc($result)['total'];
 
 // Pending Fees
-$result = mysqli_query($conn, "SELECT SUM(due_amount) as total FROM fee_collections WHERE status != 'Paid'");
+$result = mysqli_query($conn, "SELECT SUM(expected_amount - paid_amount) as total FROM fee_collections WHERE payment_status != 'paid'");
 $stats['pending_fees'] = mysqli_fetch_assoc($result)['total'] ?? 0;
 
 // Monthly Income (current month)
 $month = date('m');
 $year = date('Y');
-$result = mysqli_query($conn, "SELECT SUM(paid_amount) as total FROM fee_collections WHERE MONTH(payment_date) = $month AND YEAR(payment_date) = $year AND status = 'Paid'");
+$result = mysqli_query($conn, "SELECT SUM(paid_amount) as total FROM fee_collections WHERE MONTH(payment_date) = $month AND YEAR(payment_date) = $year AND payment_status = 'paid'");
 $stats['monthly_income'] = mysqli_fetch_assoc($result)['total'] ?? 0;
 
 // Today's Attendance
@@ -357,6 +357,10 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
+                <a href="add_routine.php" class="menu-item">
+    <i class="fas fa-calendar-plus"></i>
+    <span>Add Routine</span>
+</a>
                 <a href="admission-management.php" class="menu-item">
                     <i class="fas fa-file-alt"></i>
                     <span>Admissions</span>

@@ -1,4 +1,4 @@
-admin<?php
+<?php
 // Database connection
 $conn = mysqli_connect('localhost', 'root', '', 'coaching_db');
 
@@ -22,7 +22,9 @@ $sql = "CREATE TABLE IF NOT EXISTS admission_applications (
     monthly_fee DECIMAL(10,2),
     transaction_id VARCHAR(100),
     payment_method VARCHAR(50),
+    sender_number VARCHAR(20),
     application_fee DECIMAL(10,2),
+    fee_recorded TINYINT(1) DEFAULT 0,
     status ENUM('Pending', 'Approved', 'Rejected') DEFAULT 'Pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

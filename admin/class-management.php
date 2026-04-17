@@ -384,6 +384,10 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                     <i class="fas fa-school"></i>
                     <span>Class & Subjects</span>
                 </a>
+                <a href="class-routine.php" class="menu-item">
+                    <i class="fas fa-calendar-week"></i>
+                    <span>Class Routine</span>
+                </a>
                 <a href="attendance.php" class="menu-item">
                     <i class="fas fa-calendar-check"></i>
                     <span>Attendance</span>

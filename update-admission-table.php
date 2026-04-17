@@ -11,7 +11,9 @@ $columns = [
     "parent_name VARCHAR(100) NOT NULL DEFAULT 'Not Provided'",
     "parent_email VARCHAR(100) NOT NULL DEFAULT 'not@provided.com'",
     "parent_phone VARCHAR(15) NOT NULL DEFAULT '0000000000'",
-    "monthly_fee DECIMAL(10,2) DEFAULT 0"
+    "sender_number VARCHAR(20) NOT NULL DEFAULT '0000000000'",
+    "monthly_fee DECIMAL(10,2) DEFAULT 0",
+    "fee_recorded TINYINT(1) DEFAULT 0"
 ];
 
 $results = [];

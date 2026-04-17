@@ -9,10 +9,9 @@ checkRole(['admin', 'teacher']);
 
 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
 $class_id = isset($_GET['class_id']) ? $_GET['class_id'] : '';
-$section = isset($_GET['section']) ? $_GET['section'] : '';
 
 // Get all classes for filter
-$classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name, section");
+$classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
 
 // Get today's attendance summary
 $summary_query = "SELECT 
@@ -23,12 +22,12 @@ $summary_query = "SELECT
 $summary = mysqli_fetch_assoc(mysqli_query($conn, $summary_query));
 
 // Get recent attendance records
-$recent_query = "SELECT a.*, s.first_name, s.last_name, s.student_id, c.class_name 
+$recent_query = "SELECT a.*, s.name AS student_name, c.class_name 
                  FROM attendance a
                  JOIN students s ON a.student_id = s.id
                  JOIN classes c ON s.class_id = c.id
                  WHERE a.date = '$date'
-                 ORDER BY a.created_at DESC
+                 ORDER BY a.id DESC
                  LIMIT 10";
 $recent = mysqli_query($conn, $recent_query);
 ?>
@@ -542,18 +541,9 @@ $recent = mysqli_query($conn, $recent_query);
                                         <option value="">All Classes</option>
                                         <?php while($class = mysqli_fetch_assoc($classes)): ?>
                                             <option value="<?php echo $class['id']; ?>" <?php echo $class_id == $class['id'] ? 'selected' : ''; ?>>
-                                                <?php echo $class['class_name'] . ' - Section ' . $class['section']; ?>
+                                                <?php echo $class['class_name']; ?>
                                             </option>
                                         <?php endwhile; ?>
-                                    </select>
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label">Section</label>
-                                    <select class="form-select" name="section">
-                                        <option value="">All</option>
-                                        <option value="A" <?php echo $section == 'A' ? 'selected' : ''; ?>>Section A</option>
-                                        <option value="B" <?php echo $section == 'B' ? 'selected' : ''; ?>>Section B</option>
-                                        <option value="C" <?php echo $section == 'C' ? 'selected' : ''; ?>>Section C</option>
                                     </select>
                                 </div>
                                 <div class="col-md-2">
@@ -657,7 +647,7 @@ $recent = mysqli_query($conn, $recent_query);
                                         while($class = mysqli_fetch_assoc($classes)): 
                                         ?>
                                             <option value="<?php echo $class['id']; ?>">
-                                                <?php echo $class['class_name'] . ' - ' . $class['section']; ?>
+                                                <?php echo $class['class_name']; ?>
                                             </option>
                                         <?php endwhile; ?>
                                     </select>
@@ -701,7 +691,7 @@ $recent = mysqli_query($conn, $recent_query);
                                 <tr>
                                     <td><?php echo date('h:i A', strtotime($row['created_at'])); ?></td>
                                     <td><?php echo $row['student_id']; ?></td>
-                                    <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
+                                    <td><?php echo $row['student_name']; ?></td>
                                     <td><?php echo $row['class_name']; ?></td>
                                     <td>
                                         <span class="status-badge <?php echo strtolower($row['status']); ?>">

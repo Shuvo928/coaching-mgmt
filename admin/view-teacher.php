@@ -39,8 +39,8 @@ if(isset($_POST['id'])) {
             <td><?php echo $teacher['qualification']; ?></td>
         </tr>
         <tr>
-            <th>Interested Subjects</th>
-            <td><?php echo $teacher['interested_subjects'] ?? 'N/A'; ?></td>
+            <th>Assigned Subjects</th>
+            <td><?php echo $teacher['assigned_subjects'] ?? 'N/A'; ?></td>
         </tr>
         <tr>
             <th>Phone</th>

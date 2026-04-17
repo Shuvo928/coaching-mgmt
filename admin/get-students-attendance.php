@@ -10,7 +10,7 @@ if(isset($_POST['class_id']) && isset($_POST['date'])) {
               (SELECT status FROM attendance WHERE student_id = s.id AND date = '$date') as today_status
               FROM students s 
               WHERE s.class_id = $class_id AND s.status = 1
-              ORDER BY s.roll_number, s.first_name";
+              ORDER BY s.name";
     
     $result = mysqli_query($conn, $query);
     
@@ -28,18 +28,18 @@ if(isset($_POST['class_id']) && isset($_POST['date'])) {
                 <tbody>
                     <?php while($row = mysqli_fetch_assoc($result)): ?>
                     <tr class="student-attendance-row" data-student-id="<?php echo $row['id']; ?>">
-                        <td><?php echo $row['roll_number'] ?? 'N/A'; ?></td>
+                        <td><?php echo $row['id']; ?></td>
                         <td>
                             <div class="student-info">
                                 <?php if($row['photo']): ?>
                                     <img src="../uploads/student-photos/<?php echo $row['photo']; ?>" class="student-photo">
                                 <?php else: ?>
-                                    <img src="https://ui-avatars.com/api/?name=<?php echo $row['first_name'].'+'.$row['last_name']; ?>&size=35&background=2a5298&color=fff" class="student-photo">
+                                    <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($row['name']); ?>&size=35&background=2a5298&color=fff" class="student-photo">
                                 <?php endif; ?>
                                 <div>
-                                    <strong><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></strong>
+                                    <strong><?php echo $row['name']; ?></strong>
                                     <br>
-                                    <small class="text-muted"><?php echo $row['student_id']; ?></small>
+                                    <small class="text-muted"><?php echo $row['id']; ?></small>
                                 </div>
                             </div>
                         </td>

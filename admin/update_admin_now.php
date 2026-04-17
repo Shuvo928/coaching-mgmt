@@ -1,7 +1,7 @@
 <?php
 // Direct database update without requiring db.php
 $host = 'localhost';
-$dbname = 'coaching_db';
+$dbname = 'coaching_db1';
 $username = 'root';
 $password = '';
 
@@ -14,25 +14,25 @@ if (!$conn) {
 
 echo "<h2>🔧 Updating Admin Password</h2>";
 
-// Generate a fresh hash for admin123
-$new_hash = password_hash('admin123', PASSWORD_DEFAULT);
+// Generate a fresh hash for admin12
+$new_hash = password_hash('admin12', PASSWORD_DEFAULT);
 echo "New hash generated: <code>" . $new_hash . "</code><br><br>";
 
 // Update the admin user
-$query = "UPDATE users SET password = '$new_hash' WHERE username = 'admin'";
+$query = "UPDATE users SET password = '$new_hash' WHERE username = 'admin12'";
 
 if(mysqli_query($conn, $query)) {
     echo "<p style='color:green;font-weight:bold;'>✅ Admin password updated successfully!</p>";
     
     // Verify the update
-    $check = mysqli_query($conn, "SELECT password FROM users WHERE username = 'admin'");
+    $check = mysqli_query($conn, "SELECT password FROM users WHERE username = 'admin12'");
     $user = mysqli_fetch_assoc($check);
     
     echo "<h3>Verification:</h3>";
     echo "New stored hash: " . $user['password'] . "<br>";
     
-    if(password_verify('admin123', $user['password'])) {
-        echo "<p style='color:green;font-weight:bold;'>✅ Password verification successful! You can now login with admin/admin123</p>";
+    if(password_verify('admin12', $user['password'])) {
+        echo "<p style='color:green;font-weight:bold;'>✅ Password verification successful! You can now login with admin12/admin12</p>";
     } else {
         echo "<p style='color:red;font-weight:bold;'>❌ Password verification failed! Something went wrong.</p>";
     }

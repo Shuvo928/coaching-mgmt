@@ -23,8 +23,8 @@ if(isset($_POST['login'])) {
         $query = "SELECT u.*, 
                   CASE 
                     WHEN u.role = 'admin' THEN 'Admin'
-                    WHEN u.role = 'teacher' THEN t.first_name
-                    WHEN u.role = 'student' THEN s.first_name
+                    WHEN u.role = 'teacher' THEN CONCAT(t.first_name, ' ', t.last_name)
+                    WHEN u.role = 'student' THEN s.name
                   END as display_name
                   FROM users u 
                   LEFT JOIN teachers t ON u.id = t.user_id
@@ -311,15 +311,15 @@ if(isset($_POST['login'])) {
         <div class="login-body">
             <!-- Role Selector (Optional - for demo) -->
             <div class="role-selector">
-                <button type="button" class="role-btn active" onclick="setRole('admin')">
+                <button type="button" class="role-btn active" onclick="setRole('admin', event)">
                     <i class="fas fa-user-shield"></i>
                     Admin
                 </button>
-                <button type="button" class="role-btn" onclick="setRole('teacher')">
+                <button type="button" class="role-btn" onclick="setRole('teacher', event)">
                     <i class="fas fa-chalkboard-teacher"></i>
                     Teacher
                 </button>
-                <button type="button" class="role-btn" onclick="setRole('student')">
+                <button type="button" class="role-btn" onclick="setRole('student', event)">
                     <i class="fas fa-user-graduate"></i>
                     Student
                 </button>
@@ -373,32 +373,52 @@ if(isset($_POST['login'])) {
     
     <script>
         let currentRole = 'admin';
+        const forgotPasswordContainer = document.querySelector('.forgot-password');
+        const forgotPasswordLink = document.querySelector('.forgot-password a');
+        const roleForgotLinks = {
+            admin: 'forgot-password.php'
+        };
+
+        function updateForgotPasswordLink(role) {
+            if (!forgotPasswordContainer || !forgotPasswordLink) return;
+
+            if (role === 'admin') {
+                forgotPasswordContainer.style.display = 'block';
+                forgotPasswordLink.href = roleForgotLinks.admin;
+            } else {
+                forgotPasswordContainer.style.display = 'none';
+            }
+        }
 
         // Role selector functionality
-        function setRole(role) {
+        function setRole(role, event) {
             currentRole = role;
-            
+            updateForgotPasswordLink(currentRole);
+
             // Remove active class from all buttons
             document.querySelectorAll('.role-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
-            
+
             // Add active class to clicked button
-            event.target.closest('.role-btn').classList.add('active');
+            if (event && event.target) {
+                event.target.closest('.role-btn').classList.add('active');
+            }
         }
+
+        updateForgotPasswordLink(currentRole);
 
         // Form validation
         document.getElementById('loginForm').addEventListener('submit', function(e) {
             const username = document.querySelector('input[name="username"]').value;
             const password = document.querySelector('input[name="password"]').value;
-            
+
             if(username.trim() === '' || password.trim() === '') {
                 e.preventDefault();
                 alert('Please fill in all fields');
             }
         });
 
-       
     </script>
 </body>
 </html>

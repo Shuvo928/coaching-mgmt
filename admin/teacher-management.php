@@ -32,15 +32,6 @@ if(isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     exit();
 }
 
-// Handle Status Toggle
-if(isset($_GET['toggle']) && is_numeric($_GET['toggle'])) {
-    $teacher_id = $_GET['toggle'];
-    $query = "UPDATE teachers SET status = NOT status WHERE id = $teacher_id";
-    mysqli_query($conn, $query);
-    header("Location: teacher-management.php");
-    exit();
-}
-
 // Get all teachers
 $query = "SELECT t.*, 
           (SELECT COUNT(*) FROM teacher_subjects WHERE teacher_id = t.id) as subject_count 
@@ -49,10 +40,7 @@ $query = "SELECT t.*,
 $teachers = mysqli_query($conn, $query);
 
 // Get subjects for assignment
-$subjects = mysqli_query($conn, "SELECT s.*, c.class_name 
-                                 FROM subjects s 
-                                 JOIN classes c ON s.class_id = c.id 
-                                 ORDER BY c.class_name, s.subject_name");
+$subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_name");
 ?>
 
 <!DOCTYPE html>
@@ -536,7 +524,6 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                                 <th>Teacher ID</th>
                                 <th>Qualification</th>
                                 <th>Phone</th>
-                                <th>Subjects</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -545,13 +532,6 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                             <?php 
                             $sno = 1;
                             while($row = mysqli_fetch_assoc($teachers)): 
-                                // Get teacher's subjects
-                                $subject_query = "SELECT s.subject_name, c.class_name 
-                                                FROM teacher_subjects ts
-                                                JOIN subjects s ON ts.subject_id = s.id
-                                                JOIN classes c ON s.class_id = c.id
-                                                WHERE ts.teacher_id = {$row['id']}";
-                                $subject_result = mysqli_query($conn, $subject_query);
                             ?>
                             <tr>
                                 <td><?php echo $sno++; ?></td>
@@ -569,17 +549,6 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                                 <td><?php echo substr($row['qualification'], 0, 30) . '...'; ?></td>
                                 <td><?php echo $row['phone']; ?></td>
                                 <td>
-                                    <?php 
-                                    if(mysqli_num_rows($subject_result) > 0) {
-                                        while($sub = mysqli_fetch_assoc($subject_result)) {
-                                            echo '<span class="subject-badge">' . $sub['subject_name'] . '</span> ';
-                                        }
-                                    } else {
-                                        echo '<span class="text-muted">No subjects</span>';
-                                    }
-                                    ?>
-                                </td>
-                                <td>
                                     <span class="status-badge <?php echo $row['status'] ? 'active' : 'inactive'; ?>">
                                         <?php echo $row['status'] ? 'Active' : 'Inactive'; ?>
                                     </span>
@@ -592,19 +561,6 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                                     <a href="javascript:void(0)" onclick="editTeacher(<?php echo $row['id']; ?>)" 
                                        class="action-btn btn-edit" title="Edit">
                                         <i class="fas fa-edit"></i>
-                                    </a>
-                                    <a href="?toggle=<?php echo $row['id']; ?>" 
-                                       class="action-btn btn-toggle" title="Toggle Status"
-                                       onclick="return confirm('Change status?')">
-                                        <i class="fas fa-toggle-<?php echo $row['status'] ? 'on' : 'off'; ?>"></i>
-                                    </a>
-                                    <a href="javascript:void(0)" onclick="assignSubjects(<?php echo $row['id']; ?>)" 
-                                       class="action-btn btn-assign" title="Assign Subjects">
-                                        <i class="fas fa-book"></i>
-                                    </a>
-                                    <a href="generate-teacher-id-card.php?teacher_id=<?php echo $row['id']; ?>" 
-                                       class="action-btn btn-id-card" title="ID Card" target="_blank">
-                                        <i class="fas fa-id-card"></i>
                                     </a>
                                     <a href="?delete=<?php echo $row['id']; ?>" 
                                        class="action-btn btn-delete" title="Delete"
@@ -662,10 +618,10 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Which subjects you are interested in teaching? *</label>
-                            <textarea class="form-control" name="interested_subjects" id="interested_subjects" 
+                            <label class="form-label">Preferred Subjects *</label>
+                            <textarea class="form-control" name="assigned_subjects" id="assigned_subjects" 
                                       rows="3" placeholder="e.g., Mathematics, Physics, Chemistry, English" required></textarea>
-                            <small class="text-muted">List the subjects you are qualified and interested to teach</small>
+                            <small class="text-muted">List the subjects this teacher prefers or is qualified to teach.</small>
                         </div>
 
                         <div class="mb-3">
@@ -706,46 +662,7 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
         </div>
     </div>
 
-    <!-- Assign Subjects Modal -->
-    <div class="modal fade" id="assignModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Assign Subjects to Teacher</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form id="assignForm" method="POST" action="assign-subjects.php">
-                    <div class="modal-body">
-                        <input type="hidden" name="teacher_id" id="assign_teacher_id">
-                        
-                        <div class="mb-3">
-                            <label class="form-label">Teacher Name</label>
-                            <input type="text" class="form-control" id="teacher_name" readonly>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label class="form-label">Select Subjects</label>
-                            <select class="form-select select2-multiple" name="subjects[]" multiple="multiple" style="width: 100%">
-                                <?php 
-                                mysqli_data_seek($subjects, 0);
-                                while($subject = mysqli_fetch_assoc($subjects)): 
-                                ?>
-                                    <option value="<?php echo $subject['id']; ?>">
-                                        <?php echo $subject['class_name'] . ' - ' . $subject['subject_name']; ?>
-                                    </option>
-                                <?php endwhile; ?>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" name="assign" class="btn btn-save">Save Assignments</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
+   
     <!-- View Teacher Modal -->
     <div class="modal fade" id="viewModal" tabindex="-1">
         <div class="modal-dialog">
@@ -792,11 +709,11 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
             $('#statusFilter').on('change', function() {
                 var status = this.value;
                 if(status === '1') {
-                    table.column(7).search('Active').draw();
+                    table.column(6).search('Active').draw();
                 } else if(status === '0') {
-                    table.column(7).search('Inactive').draw();
+                    table.column(6).search('Inactive').draw();
                 } else {
-                    table.column(7).search('').draw();
+                    table.column(6).search('').draw();
                 }
             });
 
@@ -831,7 +748,7 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                     document.getElementById('email').value = data.email;
                     document.getElementById('phone').value = data.phone;
                     document.getElementById('qualification').value = data.qualification;
-                    document.getElementById('interested_subjects').value = data.interested_subjects || '';
+                    document.getElementById('assigned_subjects').value = data.assigned_subjects || '';
                     document.getElementById('joining_date').value = data.joining_date;
                     document.getElementById('address').value = data.address;
                     document.getElementById('username').value = data.username;

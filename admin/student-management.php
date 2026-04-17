@@ -11,23 +11,33 @@ checkRole(['admin']);
 
 // Handle Delete Request
 if(isset($_GET['delete']) && is_numeric($_GET['delete'])) {
-    $student_id = $_GET['delete'];
+    $student_id = (int) $_GET['delete'];
     
     // Get student photo to delete
     $photo_query = "SELECT photo FROM students WHERE id = $student_id";
     $photo_result = mysqli_query($conn, $photo_query);
     $student = mysqli_fetch_assoc($photo_result);
     
-    if($student['photo'] && file_exists("../uploads/student-photos/".$student['photo'])) {
-        unlink("../uploads/student-photos/".$student['photo']);
-    }
-    
-    // Delete student (soft delete or hard delete)
-    $query = "DELETE FROM students WHERE id = $student_id";
-    if(mysqli_query($conn, $query)) {
-        $_SESSION['success'] = "Student deleted successfully!";
+    if($student) {
+        if($student['photo'] && file_exists("../uploads/student-photos/".$student['photo'])) {
+            unlink("../uploads/student-photos/".$student['photo']);
+        }
+
+        mysqli_begin_transaction($conn);
+
+        $deleteFeeCollections = "DELETE FROM fee_collections WHERE student_id = $student_id";
+        $deleteResults = "DELETE FROM results WHERE student_id = $student_id";
+        $deleteStudent = "DELETE FROM students WHERE id = $student_id";
+
+        if(mysqli_query($conn, $deleteFeeCollections) && mysqli_query($conn, $deleteResults) && mysqli_query($conn, $deleteStudent)) {
+            mysqli_commit($conn);
+            $_SESSION['success'] = "Student deleted successfully!";
+        } else {
+            mysqli_rollback($conn);
+            $_SESSION['error'] = "Error deleting student. Please try again.";
+        }
     } else {
-        $_SESSION['error'] = "Error deleting student!";
+        $_SESSION['error'] = "Student not found.";
     }
     
     header("Location: student-management.php");
@@ -43,10 +53,11 @@ if(isset($_GET['toggle']) && is_numeric($_GET['toggle'])) {
     exit();
 }
 
-// Get all students with class info
-$query = "SELECT s.*, c.class_name 
+// Get all students with class and group info
+$query = "SELECT s.*, c.class_name, g.group_name 
           FROM students s 
           LEFT JOIN classes c ON s.class_id = c.id 
+          LEFT JOIN groups g ON s.group_id = g.id 
           ORDER BY s.id DESC";
 $students = mysqli_query($conn, $query);
 
@@ -504,8 +515,9 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                         <select class="form-select" id="classFilter">
                             <option value="">All Classes</option>
                             <?php while($class = mysqli_fetch_assoc($classes)): ?>
-                                <option value="<?php echo $class['class_name']. '-' . $class['section']; ?>">
-                                    <?php echo $class['class_name'] . ' - ' . $class['section']; ?>
+                                <?php $classLabel = $class['class_name']; ?>
+                                <option value="<?php echo htmlspecialchars($classLabel); ?>">
+                                    <?php echo htmlspecialchars($classLabel); ?>
                                 </option>
                             <?php endwhile; ?>
                         </select>
@@ -529,7 +541,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <th>Name</th>
                                 <th>Student ID</th>
                                 <th>Class</th>
-                                <th>Section</th>
+                                <th>Group</th>
                                 <th>Phone</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -553,8 +565,8 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 </td>
                                 <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
                                 <td><span class="badge bg-light text-dark"><?php echo $row['student_id']; ?></span></td>
-                                <td><?php echo $row['class_name'] ?? 'N/A'; ?></td>
-                                <td><?php echo $row['section'] ?? 'N/A'; ?></td>
+                                <td><?php echo $row['class_name'] ? htmlspecialchars($row['class_name'] . (!empty($row['group_name']) ? ' - ' . $row['group_name'] : '')) : 'N/A'; ?></td>
+                                <td><?php echo !empty($row['group_name']) ? ucwords(strtolower($row['group_name'])) : 'N/A'; ?></td>
                                 <td><?php echo $row['phone'] ?? 'N/A'; ?></td>
                                 <td>
                                     <span class="status-badge <?php echo $row['status'] ? 'active' : 'inactive'; ?>">
@@ -562,10 +574,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                     </span>
                                 </td>
                                 <td>
-                                    <a href="javascript:void(0)" onclick="viewStudent(<?php echo $row['id']; ?>)" 
-                                       class="action-btn btn-view" title="View">
-                                        <i class="fas fa-eye"></i>
-                                    </a>
                                     <a href="javascript:void(0)" onclick="editStudent(<?php echo $row['id']; ?>)" 
                                        class="action-btn btn-edit" title="Edit">
                                         <i class="fas fa-edit"></i>
@@ -622,10 +630,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
 
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Email *</label>
-                                <input type="email" class="form-control" name="email" id="email" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
                                 <label class="form-label">Phone *</label>
                                 <input type="text" class="form-control" name="phone" id="phone" required>
                             </div>
@@ -648,35 +652,46 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Class *</label>
-                                <select class="form-select" name="class_id" id="class_id" required>
-                                    <option value="">Select Class</option>
-                                    <?php 
-                                    $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
-                                    while($class = mysqli_fetch_assoc($classes)): 
-                                    ?>
-                                        <option value="<?php echo $class['id']; ?>">
-                                            <?php echo $class['class_name'] . ' - ' . $class['section']; ?>
-                                        </option>
-                                    <?php endwhile; ?>
-                                </select>
+                                <input type="text" class="form-control" name="class_label" id="class_label" placeholder="e.g. 11 - Science" required>
+                                <small class="text-muted">Enter class name with group manually (e.g. 11 - Science).</small>
                             </div>
                         </div>
 
                         <div class="row">
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">Roll Number</label>
-                                <input type="text" class="form-control" name="roll_number" id="roll_number">
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">Batch No</label>
-                                <input type="text" class="form-control" name="batch_no" id="batch_no">
-                            </div>
-                            <div class="col-md-4 mb-3">
+                            <div class="col-md-6 mb-3">
                                 <label class="form-label">Admission Date</label>
-                                <input type="date" class="form-control" name="admission_date" id="admission_date" min="2015-01-01" max="2026-12-31">
-                                <small class="text-muted">Year range: 2015 - 2026</small>
+                                <input type="date" class="form-control" name="admission_date" id="admission_date">
                             </div>
                         </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Parent Email *</label>
+                                <input type="email" class="form-control" name="parent_email" id="parent_email" required autocomplete="email">
+                                <small class="text-muted">A verification OTP will be sent to this email.</small>
+                            </div>
+                            <div class="col-md-6 mb-3 d-flex align-items-end">
+                                <button type="button" id="sendOtpBtn" class="btn btn-outline-primary w-100">Send OTP</button>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Email OTP</label>
+                                <input type="text" class="form-control" name="parent_email_otp" id="parent_email_otp" placeholder="Enter OTP">
+                            </div>
+                            <div class="col-md-6 mb-3 d-flex align-items-end">
+                                <button type="button" id="verifyOtpBtn" class="btn btn-outline-success w-100">Verify OTP</button>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-12 mb-3">
+                                <div id="otpFeedback" class="small text-muted">Please verify the parent email before saving.</div>
+                            </div>
+                        </div>
+
+                        <input type="hidden" name="parent_email_verified" id="parent_email_verified" value="0">
 
                         <div class="mb-3">
                             <label class="form-label">Address</label>
@@ -754,7 +769,12 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
 
             // Class filter
             $('#classFilter').on('change', function() {
-                table.column(4).search(this.value).draw();
+                var value = this.value;
+                if(value) {
+                    table.column(4).search('^' + value + '$', true, false).draw();
+                } else {
+                    table.column(4).search('').draw();
+                }
             });
 
             // Status filter
@@ -777,10 +797,13 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
             document.getElementById('modalTitle').innerHTML = '<i class="fas fa-plus me-2"></i>Add New Student';
             document.getElementById('password').required = true;
             document.getElementById('photo_preview').innerHTML = '';
+            document.getElementById('parent_email').value = '';
+            document.getElementById('parent_email_otp').value = '';
+            document.getElementById('parent_email_verified').value = '0';
+            document.getElementById('otpFeedback').innerHTML = 'Please verify the parent email before saving.';
             new bootstrap.Modal(document.getElementById('studentModal')).show();
         }
 
-        // Edit Student
         function editStudent(id) {
             $.ajax({
                 url: 'get-student.php',
@@ -793,15 +816,16 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     document.getElementById('last_name').value = data.last_name;
                     document.getElementById('father_name').value = data.father_name;
                     document.getElementById('mother_name').value = data.mother_name;
-                    document.getElementById('email').value = data.email;
+                    document.getElementById('parent_email').value = data.email;
                     document.getElementById('phone').value = data.phone;
                     document.getElementById('dob').value = data.dob;
                     document.getElementById('gender').value = data.gender;
-                    document.getElementById('class_id').value = data.class_id;
-                    document.getElementById('roll_number').value = data.roll_number;
-                    document.getElementById('batch_no').value = data.batch_no;
+                    document.getElementById('class_label').value = data.class_label || '';
                     document.getElementById('admission_date').value = data.admission_date;
                     document.getElementById('address').value = data.address;
+                    document.getElementById('parent_email_otp').value = '';
+                    document.getElementById('parent_email_verified').value = '0';
+                    document.getElementById('otpFeedback').innerHTML = 'Please verify the parent email before saving.';
                     document.getElementById('username').value = data.username;
                     document.getElementById('password').required = false;
                     document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Student';
@@ -816,18 +840,64 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
             });
         }
 
-        // View Student
-        function viewStudent(id) {
+        document.getElementById('parent_email').addEventListener('input', function() {
+            document.getElementById('parent_email_verified').value = '0';
+            document.getElementById('otpFeedback').innerHTML = 'Please verify the parent email before saving.';
+        });
+
+        document.getElementById('sendOtpBtn').addEventListener('click', function() {
+            var email = document.getElementById('parent_email').value.trim();
+            if(!email) {
+                document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">Enter a parent email first.</span>';
+                return;
+            }
+
             $.ajax({
-                url: 'view-student.php',
+                url: 'send-parent-email-otp.php',
                 type: 'POST',
-                data: {id: id},
-                success: function(data) {
-                    document.getElementById('viewDetails').innerHTML = data;
-                    new bootstrap.Modal(document.getElementById('viewModal')).show();
+                data: {email: email},
+                dataType: 'json',
+                success: function(response) {
+                    if(response.success) {
+                        document.getElementById('otpFeedback').innerHTML = '<span class="text-success">' + response.message + '</span>';
+                        document.getElementById('parent_email_verified').value = '0';
+                    } else {
+                        document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">' + response.message + '</span>';
+                    }
+                },
+                error: function() {
+                    document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">Unable to send OTP. Try again.</span>';
                 }
             });
-        }
+        });
+
+        document.getElementById('verifyOtpBtn').addEventListener('click', function() {
+            var email = document.getElementById('parent_email').value.trim();
+            var otp = document.getElementById('parent_email_otp').value.trim();
+            if(!email || !otp) {
+                document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">Enter both parent email and OTP.</span>';
+                return;
+            }
+
+            $.ajax({
+                url: 'verify-parent-email-otp.php',
+                type: 'POST',
+                data: {email: email, otp: otp},
+                dataType: 'json',
+                success: function(response) {
+                    if(response.success) {
+                        document.getElementById('parent_email_verified').value = '1';
+                        document.getElementById('otpFeedback').innerHTML = '<span class="text-success">' + response.message + '</span>';
+                    } else {
+                        document.getElementById('parent_email_verified').value = '0';
+                        document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">' + response.message + '</span>';
+                    }
+                },
+                error: function() {
+                    document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">Unable to verify OTP. Try again.</span>';
+                }
+            });
+        });
 
         // Photo Preview
         document.getElementById('photo').addEventListener('change', function(e) {
