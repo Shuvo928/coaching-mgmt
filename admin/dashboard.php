@@ -1,7 +1,6 @@
 <?php
 session_start();
-require_once '../includes/db.php';
-
+require_once '../includes/db.php';require_once '../includes/parent_helpers.php';
 // Check if user is logged in
 if(!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -52,6 +51,45 @@ $stats['today_present'] = mysqli_fetch_assoc($result)['total'] ?? 0;
 $next_week = date('Y-m-d', strtotime('+7 days'));
 $result = mysqli_query($conn, "SELECT COUNT(*) as total FROM exam_routine WHERE exam_date BETWEEN '$today' AND '$next_week'");
 $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
+
+// Handle setting parent credentials
+if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['set_credentials'])) {
+    $admission_id = (int) $_POST['admission_id'];
+    $username = mysqli_real_escape_string($conn, $_POST['username']);
+    $password_hash = password_hash($_POST['password'], PASSWORD_DEFAULT);
+
+    $app_query = "SELECT parent_name, parent_email, parent_phone, COALESCE(mobile, phone) AS student_mobile FROM admission_applications WHERE id = $admission_id AND status = 'Approved' LIMIT 1";
+    $app_result = mysqli_query($conn, $app_query);
+    $app = mysqli_fetch_assoc($app_result);
+
+    if ($app) {
+        $parent_id = createOrUpdateParentRecord(
+            $conn,
+            $app['parent_name'],
+            $app['parent_email'],
+            $app['parent_phone'],
+            $username,
+            $password_hash,
+            'Active'
+        );
+
+        if ($parent_id) {
+            linkParentToStudentByPhone($conn, $parent_id, $app['student_mobile']);
+            $_SESSION['success'] = "Parent credentials set successfully!";
+        } else {
+            $_SESSION['error'] = "Error creating parent account.";
+        }
+    } else {
+        $_SESSION['error'] = "Admission record not found or not approved.";
+    }
+
+    header("Location: dashboard.php");
+    exit();
+}
+
+// Get approved admissions for parent management
+$query = "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name, parent_name, parent_email, parent_phone, username FROM admission_applications WHERE status = 'Approved' ORDER BY id DESC";
+$admissions = mysqli_query($conn, $query);
 ?>
 
 <!DOCTYPE html>
@@ -365,6 +403,10 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
                     <i class="fas fa-file-alt"></i>
                     <span>Admissions</span>
                 </a>
+                <a href="#parent-management" class="menu-item">
+                    <i class="fas fa-user-circle"></i>
+                    <span>Parent Accounts</span>
+                </a>
                 <a href="attendance.php" class="menu-item">
                     <i class="fas fa-calendar-check"></i>
                     <span>Attendance</span>
@@ -407,6 +449,20 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
                     </div>
                 </div>
             </div>
+
+            <!-- Alerts -->
+            <?php if(isset($_SESSION['success'])): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            <?php endif; ?>
+            <?php if(isset($_SESSION['error'])): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <?php echo $_SESSION['error']; unset($_SESSION['error']); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            <?php endif; ?>
 
             <!-- Stats Cards -->
             <div class="stats-grid">
@@ -456,7 +512,7 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
                         <p>Monthly Income</p>
                     </div>
                     <div class="stat-icon green">
-                        <i class="fas fa-rupee-sign"></i>
+                        <i class="taka-sign"></i>
                     </div>
                 </div>
 
@@ -497,136 +553,83 @@ $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
                 </div>
             </div>
 
-            <!-- Recent Activities & Upcoming Exams -->
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="recent-activities">
-                        <h5 class="mb-4">Recent Activities</h5>
-                        
-                        <?php
-                        // Get recent fee collections
-                        $recent = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_name 
-                                                       FROM fee_collections fc 
-                                                       JOIN students s ON fc.student_id = s.id 
-                                                       ORDER BY fc.created_at DESC 
-                                                       LIMIT 5");
-                        
-                        if(mysqli_num_rows($recent) > 0) {
-                            while($row = mysqli_fetch_assoc($recent)) {
-                                ?>
-                                <div class="activity-item">
-                                    <div class="activity-icon">
-                                        <i class="fas fa-rupee-sign"></i>
-                                    </div>
-                                    <div class="activity-details">
-                                        <p><?php echo $row['first_name'] . ' ' . $row['last_name']; ?> paid ₹<?php echo $row['paid_amount']; ?></p>
-                                        <small><?php echo date('d M Y', strtotime($row['created_at'])); ?></small>
-                                    </div>
-                                </div>
-                                <?php
-                            }
-                        }
-                        ?>
-                    </div>
-                </div>
+           
 
-                <div class="col-md-6">
-                    <div class="recent-activities">
-                        <h5 class="mb-4">Upcoming Exams</h5>
-                        
-                        <?php
-                        // Get upcoming exams
-                        $exams = mysqli_query($conn, "SELECT er.*, et.exam_name, c.class_name, s.subject_name 
-                                                       FROM exam_routine er
-                                                       JOIN exam_types et ON er.exam_type_id = et.id
-                                                       JOIN classes c ON er.class_id = c.id
-                                                       JOIN subjects s ON er.subject_id = s.id
-                                                       WHERE er.exam_date >= CURDATE()
-                                                       ORDER BY er.exam_date ASC
-                                                       LIMIT 5");
-                        
-                        if(mysqli_num_rows($exams) > 0) {
-                            while($row = mysqli_fetch_assoc($exams)) {
-                                ?>
-                                <div class="activity-item">
-                                    <div class="activity-icon">
-                                        <i class="fas fa-pen"></i>
-                                    </div>
-                                    <div class="activity-details">
-                                        <p><?php echo $row['exam_name']; ?> - <?php echo $row['subject_name']; ?></p>
-                                        <small><?php echo $row['class_name']; ?> | <?php echo date('d M Y', strtotime($row['exam_date'])); ?></small>
-                                    </div>
+                
+            <!-- Parent Management -->
+            <div id="parent-management" class="recent-activities">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5>Parent Account Management</h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Student Name</th>
+                                <th>Parent Name</th>
+                                <th>Parent Email</th>
+                                <th>Parent Phone</th>
+                                <th>Username</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php while($admission = mysqli_fetch_assoc($admissions)): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($admission['full_name']); ?></td>
+                                <td><?php echo htmlspecialchars($admission['parent_name']); ?></td>
+                                <td><?php echo htmlspecialchars($admission['parent_email']); ?></td>
+                                <td><?php echo htmlspecialchars($admission['parent_phone']); ?></td>
+                                <td><?php echo $admission['username'] ? htmlspecialchars($admission['username']) : '<span class="text-muted">Not Set</span>'; ?></td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" onclick="setCredentials(<?php echo $admission['id']; ?>)">Set Credentials</button>
+                                </td>
+                            </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Modal for Setting Credentials -->
+            <div class="modal fade" id="credentialsModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Set Parent Credentials</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <form method="POST">
+                            <div class="modal-body">
+                                <input type="hidden" name="admission_id" id="admission_id">
+                                <div class="mb-3">
+                                    <label for="username" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="username" name="username" required>
                                 </div>
-                                <?php
-                            }
-                        }
-                        ?>
+                                <div class="mb-3">
+                                    <label for="password" class="form-label">Password</label>
+                                    <input type="password" class="form-control" id="password" name="password" required>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" name="set_credentials" class="btn btn-primary">Set Credentials</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script>
-        // Attendance Chart
-        const ctx1 = document.getElementById('attendanceChart').getContext('2d');
-        new Chart(ctx1, {
-            type: 'line',
-            data: {
-                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-                datasets: [{
-                    label: 'Present',
-                    data: [65, 72, 68, 75, 70, 55, 48],
-                    borderColor: '#2a5298',
-                    backgroundColor: 'rgba(42, 82, 152, 0.1)',
-                    tension: 0.4,
-                    fill: true
-                }, {
-                    label: 'Absent',
-                    data: [12, 8, 10, 7, 9, 15, 18],
-                    borderColor: '#d32f2f',
-                    backgroundColor: 'rgba(211, 47, 47, 0.1)',
-                    tension: 0.4,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom'
-                    }
-                }
-            }
-        });
-
-        // Fee Chart
-        const ctx2 = document.getElementById('feeChart').getContext('2d');
-        new Chart(ctx2, {
-            type: 'doughnut',
-            data: {
-                labels: ['Collected', 'Pending', 'Overdue'],
-                datasets: [{
-                    data: [75, 15, 10],
-                    backgroundColor: ['#388e3c', '#f57c00', '#d32f2f'],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom'
-                    }
-                }
-            }
-        });
+        // Function to set credentials
+        function setCredentials(id) {
+            document.getElementById('admission_id').value = id;
+            var modal = new bootstrap.Modal(document.getElementById('credentialsModal'));
+            modal.show();
+        }
     </script>
 </body>
 </html>

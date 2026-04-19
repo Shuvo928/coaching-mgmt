@@ -21,6 +21,14 @@ if(mysqli_num_rows($teacher_result) == 0) {
 $teacher = mysqli_fetch_assoc($teacher_result);
 $teacher_id = $teacher['id'];
 
+// Check if assigned_subjects column exists
+$assignedSubjectsColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teachers LIKE 'assigned_subjects'");
+$assignedSubjectsColumnExists = ($assignedSubjectsColumnCheck && mysqli_num_rows($assignedSubjectsColumnCheck) > 0);
+
+// Check if class_id column exists in teacher_subjects table
+$teacherSubjectsClassIdColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+$teacherSubjectsClassIdColumnExists = ($teacherSubjectsClassIdColumnCheck && mysqli_num_rows($teacherSubjectsClassIdColumnCheck) > 0);
+
 // Get teacher's class routine (weekly schedule)
 $routine_query = "SELECT cr.*, c.class_name, s.subject_name, s.subject_code
                   FROM class_routine cr
@@ -29,10 +37,6 @@ $routine_query = "SELECT cr.*, c.class_name, s.subject_name, s.subject_code
                   WHERE cr.teacher_id = '$teacher_id'
                   ORDER BY FIELD(cr.day,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), cr.start_time";
 $routine_result = mysqli_query($conn, $routine_query);
-
-// Get exam types for result management (using exam_routine)
-$exam_types_query = "SELECT DISTINCT er.exam_type_id FROM exam_routine er WHERE er.exam_type_id IS NOT NULL";
-$exam_types_result = mysqli_query($conn, $exam_types_query);
 
 // Get teacher's subjects for result filtering
 $subjects_query = "SELECT DISTINCT s.id, s.subject_name, s.subject_code, c.class_name
@@ -52,11 +56,19 @@ $recent_results_query = "SELECT er.*, c.class_name, s.subject_name
 $recent_results_result = mysqli_query($conn, $recent_results_query);
 
 // Get students list for result entry
-$students_query = "SELECT s.id, s.first_name, s.last_name, s.roll_number, c.class_name
-                  FROM students s
-                  JOIN classes c ON s.class_id = c.id
-                  WHERE s.class_id IN (SELECT class_id FROM teacher_subjects WHERE teacher_id = '$teacher_id')
-                  ORDER BY c.class_name, s.roll_number";
+if ($teacherSubjectsClassIdColumnExists) {
+    $students_query = "SELECT s.id, s.first_name, s.last_name, s.roll_number, c.class_name
+                      FROM students s
+                      JOIN classes c ON s.class_id = c.id
+                      WHERE s.class_id IN (SELECT class_id FROM teacher_subjects WHERE teacher_id = '$teacher_id')
+                      ORDER BY c.class_name, s.roll_number";
+} else {
+    $students_query = "SELECT s.id, s.first_name, s.last_name, s.roll_number, c.class_name
+                      FROM students s
+                      JOIN classes c ON s.class_id = c.id
+                      WHERE s.class_id IN (SELECT class_id FROM subjects WHERE id IN (SELECT subject_id FROM teacher_subjects WHERE teacher_id = '$teacher_id'))
+                      ORDER BY c.class_name, s.roll_number";
+}
 $students_result = mysqli_query($conn, $students_query);
 
 // Handle result submission
@@ -518,6 +530,7 @@ if(isset($_POST['add_result'])) {
         <?php endif; ?>
 
         <!-- Preferred Subjects Section -->
+        <?php if ($assignedSubjectsColumnExists): ?>
         <div class="card" id="preferred-subjects">
             <div class="card-header">
                 <h5><i class="fas fa-book"></i> Preferred Subjects</h5>
@@ -535,6 +548,7 @@ if(isset($_POST['add_result'])) {
                 <?php endif; ?>
             </div>
         </div>
+        <?php endif; ?>
 
         <!-- Class Routine Section -->
         <div class="card" id="routine">

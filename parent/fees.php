@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+require_once '../includes/parent_helpers.php';
 
 // Check if parent is logged in
 if(!isset($_SESSION['parent_id'])) {
@@ -9,20 +10,20 @@ if(!isset($_SESSION['parent_id'])) {
 }
 
 $parent_id = $_SESSION['parent_id'];
-$student_name = $_SESSION['student_name'];
-$student_mobile = $_SESSION['student_mobile'];
+$student_name = $_SESSION['student_name'] ?? '';
+$student_mobile = $_SESSION['student_mobile'] ?? '';
 
-// Get student info to find student ID
-$admission_query = "SELECT monthly_fee FROM admission_applications WHERE id = $parent_id LIMIT 1";
-$admission_result = mysqli_query($conn, $admission_query);
-$admission_data = mysqli_fetch_assoc($admission_result);
-$monthly_fee = $admission_data['monthly_fee'] ?? 0;
+$student_ids = getParentStudentIds($conn, $parent_id, $student_mobile);
+$firstStudent = getFirstParentStudent($conn, $parent_id, $student_mobile);
+$student_id = $firstStudent['id'] ?? 0;
 
-// Get student ID from students table
-$student_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
-$student_result = mysqli_query($conn, $student_query);
-$student_data = mysqli_fetch_assoc($student_result);
-$student_id = $student_data['id'] ?? 0;
+$monthly_fee = 0;
+if (!empty($student_mobile)) {
+    $admission_query = "SELECT monthly_fee FROM admission_applications WHERE phone = '$student_mobile' LIMIT 1";
+    $admission_result = mysqli_query($conn, $admission_query);
+    $admission_data = mysqli_fetch_assoc($admission_result);
+    $monthly_fee = $admission_data['monthly_fee'] ?? 0;
+}
 
 // Handle monthly payment submission
 if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment'])) {
@@ -32,27 +33,27 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment
     $transaction_id = mysqli_real_escape_string($conn, $_POST['transaction_id']);
     
     // Get current monthly fee record
-    $fee_check = "SELECT id, tuition_fee, paid_amount, due_amount, status FROM monthly_fees WHERE id = $monthly_fee_id AND student_id = $student_id";
+    $student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
+    $fee_check = "SELECT id, expected_amount, paid_amount, payment_status FROM fee_collections WHERE id = $monthly_fee_id AND student_id IN ($student_ids_list)";
     $fee_result = mysqli_query($conn, $fee_check);
     $fee = mysqli_fetch_assoc($fee_result);
     
-    if($fee && $payment_amount > 0 && $payment_amount <= $fee['due_amount']) {
+    $fee_due = isset($fee['expected_amount']) && isset($fee['paid_amount']) ? $fee['expected_amount'] - $fee['paid_amount'] : 0;
+    if($fee && $payment_amount > 0 && $payment_amount <= $fee_due) {
         // Generate receipt
         $receipt_no = 'RCP' . date('Ymd') . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
         
         // Calculate new totals
         $new_paid = $fee['paid_amount'] + $payment_amount;
-        $new_due = $fee['due_amount'] - $payment_amount;
-        $new_status = ($new_due <= 0) ? 'Paid' : 'Partial';
+        $new_due = $fee_due - $payment_amount;
+        $new_status = ($new_due <= 0) ? 'paid' : 'partial';
         
-        // Update monthly fee
-        $update_fee = "UPDATE monthly_fees SET 
+        // Update fee collection
+        $update_fee = "UPDATE fee_collections SET 
                        paid_amount = $new_paid, 
-                       due_amount = $new_due, 
-                       status = '$new_status',
+                       payment_status = '$new_status',
                        payment_method = '$payment_method',
                        payment_date = CURDATE(),
-                       receipt_no = '$receipt_no',
                        transaction_id = '$transaction_id'
                        WHERE id = $monthly_fee_id";
         
@@ -73,30 +74,32 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment
     }
 }
 
-// Get fee collections for this student
+// Build student filter for parent-linked children.
+$student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
+
+// Get fee collections for the parent-linked students
 $fees_query = "SELECT 
                     fc.id,
-                    fh.fee_name,
-                    fc.amount,
+                    fc.fee_month,
+                    fc.expected_amount,
                     fc.paid_amount,
-                    fc.due_amount,
-                    fc.status,
+                    (fc.expected_amount - fc.paid_amount) as due_amount,
+                    fc.payment_status,
                     fc.payment_date,
                     fc.created_at
                 FROM fee_collections fc
-                LEFT JOIN fees_head fh ON fc.fee_head_id = fh.id
-                WHERE fc.student_id = $student_id
+                WHERE fc.student_id IN ($student_ids_list)
                 ORDER BY fc.created_at DESC";
 
 $fees_result = mysqli_query($conn, $fees_query);
 
 // Calculate totals
 $totals_query = "SELECT 
-                    SUM(amount) as total_amount,
+                    SUM(expected_amount) as total_amount,
                     SUM(paid_amount) as total_paid,
-                    SUM(due_amount) as total_due
+                    SUM(expected_amount - paid_amount) as total_due
                 FROM fee_collections
-                WHERE student_id = $student_id";
+                WHERE student_id IN ($student_ids_list)";
 
 $totals_result = mysqli_query($conn, $totals_query);
 $totals = mysqli_fetch_assoc($totals_result);
@@ -470,12 +473,7 @@ $totals = mysqli_fetch_assoc($totals_result);
                         Fees & Payments
                     </a>
                 </li>
-                <li>
-                    <a href="progress.php">
-                        <i class="fas fa-graduation-cap"></i>
-                        Progress
-                    </a>
-                </li>
+                
                 <li>
                     <a href="../parent-logout.php">
                         <i class="fas fa-sign-out-alt"></i>
@@ -530,130 +528,7 @@ $totals = mysqli_fetch_assoc($totals_result);
                 </div>
             </div>
 
-            <!-- Monthly Fees Status Section -->
-            <?php 
-            if($student_id > 0) {
-                // Get last 3 months + current month + next month fees
-                $months_query = "SELECT 
-                                    id,
-                                    month,
-                                    year,
-                                    tuition_fee,
-                                    paid_amount,
-                                    due_amount,
-                                    status,
-                                    payment_date,
-                                    payment_method,
-                                    receipt_no
-                                FROM monthly_fees
-                                WHERE student_id = $student_id
-                                ORDER BY year DESC, month DESC
-                                LIMIT 6";
-                $months_result = mysqli_query($conn, $months_query);
-                $months_count = $months_result ? mysqli_num_rows($months_result) : 0;
-                
-                // Get current month
-                $current_month = date('F');
-                $current_year = date('Y');
-            } else {
-                $months_count = 0;
-                $months_result = null;
-            }
-            ?>
 
-            <?php if($months_count > 0): ?>
-            <div class="fees-container" style="background: linear-gradient(135deg, #fff3e0 0%, #ffe8cc 100%); border: 3px solid #ff9800; margin-bottom: 30px;">
-                <div class="fees-container-header" style="background: linear-gradient(135deg, #ff9800, #f57c00); color: white; border-bottom: 3px solid #e65100;">
-                    <h4 style="color: white; margin: 0;"><i class="fas fa-calendar-alt me-2"></i>Monthly Fees Status</h4>
-                </div>
-
-                <div style="padding: 25px;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
-                        <?php 
-                        if($months_result) {
-                            $count = 0;
-                            while($count < 6 && $month_fee = mysqli_fetch_assoc($months_result)): 
-                                $month_display = $month_fee['month'];
-                                $year_display = $month_fee['year'];
-                                $is_current = ($month_display == $current_month && $year_display == $current_year);
-                                
-                                $status_class = '';
-                                $status_color = '';
-                                $status_text = '';
-                                $border_color = '';
-                                
-                                if($month_fee['status'] == 'Paid') {
-                                    $status_class = 'paid';
-                                    $status_color = '#4caf50';
-                                    $status_text = '✓ Fully Paid';
-                                    $border_color = '#4caf50';
-                                } elseif($month_fee['status'] == 'Partial') {
-                                    $status_class = 'partial';
-                                    $status_color = '#ff9800';
-                                    $status_text = '⚠ Partially Paid';
-                                    $border_color = '#ff9800';
-                                } else {
-                                    $status_class = 'unpaid';
-                                    $status_color = '#f44336';
-                                    $status_text = '✗ Not Paid';
-                                    $border_color = '#f44336';
-                                }
-                        ?>
-                        <div style="background: white; padding: 20px; border-radius: 10px; border-left: 5px solid <?php echo $border_color; ?>; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: relative;">
-                            <?php if($is_current): ?>
-                            <div style="position: absolute; top: -12px; right: 15px; background: #f44336; color: white; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: bold;">CURRENT MONTH</div>
-                            <?php endif; ?>
-                            
-                            <div style="margin-bottom: 15px; margin-top: <?php echo $is_current ? '15px' : '0'; ?>;">
-                                <h6 style="margin: 0 0 5px 0; color: #333; font-weight: 600; font-size: 18px;">
-                                    <?php echo htmlspecialchars($month_display) . ' ' . $year_display; ?>
-                                </h6>
-                                <small style="color: <?php echo $status_color; ?>; display: block; font-weight: 600;">
-                                    <?php echo $status_text; ?>
-                                </small>
-                            </div>
-
-                            <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
-                                <div style="font-size: 24px; font-weight: 700; color: <?php echo $status_color; ?>;">৳<?php echo number_format($month_fee['due_amount'], 2); ?></div>
-                                <small style="color: #999;">Amount Due</small>
-                                
-                                <?php if($month_fee['paid_amount'] > 0): ?>
-                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
-                                    <small style="color: #666;">Paid: <strong>৳<?php echo number_format($month_fee['paid_amount'], 2); ?></strong></small>
-                                </div>
-                                <?php endif; ?>
-                            </div>
-
-                            <?php if($month_fee['status'] == 'Paid' && $month_fee['receipt_no']): ?>
-                            <div style="background: #e8f5e9; padding: 10px; border-radius: 6px; margin-bottom: 10px; font-size: 12px;">
-                                <strong style="color: #2e7d32;">Receipt:</strong> <?php echo htmlspecialchars($month_fee['receipt_no']); ?>
-                                <br><strong style="color: #2e7d32;">Date:</strong> <?php echo date('d-M-Y', strtotime($month_fee['payment_date'])); ?>
-                            </div>
-                            <?php endif; ?>
-
-                            <?php if($month_fee['status'] != 'Paid'): ?>
-                            <button type="button" style="width: 100%; background: linear-gradient(135deg, #f44336, #d32f2f); color: white; border: none; padding: 12px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.3s; font-size: 14px;" 
-                                    data-bs-toggle="modal" data-bs-target="#paymentModal" 
-                                    onclick="initializeMonthlyPayment(<?php echo $month_fee['id']; ?>, <?php echo $month_fee['due_amount']; ?>, '<?php echo htmlspecialchars($month_display); ?>')">
-                                <i class="fas fa-money-bill-wave" style="margin-right: 8px;"></i>Pay Now
-                            </button>
-                            <?php endif; ?>
-                        </div>
-                        <?php 
-                                $count++;
-                            endwhile;
-                        }
-                        ?>
-                    </div>
-                </div>
-            </div>
-            <?php else: ?>
-            <div class="alert alert-info alert-dismissible fade show" role="alert" style="margin-bottom: 30px;">
-                <i class="fas fa-info-circle me-2"></i>
-                <strong>Info:</strong> Monthly fee records not found. Please contact admin to set up monthly fees.
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-            <?php endif; ?>
 
             <!-- Fee Collection Table -->
             <div class="fees-container">
@@ -666,7 +541,7 @@ $totals = mysqli_fetch_assoc($totals_result);
                     <table class="table">
                         <thead>
                             <tr>
-                                <th>Fee Head</th>
+                                <th>Fee Month</th>
                                 <th>Amount</th>
                                 <th>Paid</th>
                                 <th>Due</th>
@@ -677,27 +552,30 @@ $totals = mysqli_fetch_assoc($totals_result);
                         <tbody>
                             <?php
                             while($row = mysqli_fetch_assoc($fees_result)) {
-                                $status = $row['status'];
+                                $status = $row['payment_status'];
                                 
-                                if($status == 'Paid') {
+                                if($status == 'paid') {
                                     $status_class = 'status-paid';
                                     $status_icon = '✓';
-                                } elseif($status == 'Pending') {
-                                    $status_class = 'status-pending';
-                                    $status_icon = '⏳';
-                                } else {
+                                    $display_status = 'Paid';
+                                } elseif($status == 'partial') {
                                     $status_class = 'status-partial';
                                     $status_icon = '⚠';
+                                    $display_status = 'Partial';
+                                } else {
+                                    $status_class = 'status-pending';
+                                    $status_icon = '⏳';
+                                    $display_status = 'Unpaid';
                                 }
                             ?>
                             <tr>
-                                <td><span class="fee-head-name"><?php echo htmlspecialchars($row['fee_name'] ?? 'Unknown Fee'); ?></span></td>
-                                <td><span class="amount-text">৳<?php echo number_format($row['amount'], 2); ?></span></td>
+                                <td><span class="fee-head-name"><?php echo htmlspecialchars($row['fee_month'] ?? 'Unknown'); ?></span></td>
+                                <td><span class="amount-text">৳<?php echo number_format($row['expected_amount'], 2); ?></span></td>
                                 <td><span class="amount-text">৳<?php echo number_format($row['paid_amount'], 2); ?></span></td>
                                 <td><span class="amount-text">৳<?php echo number_format($row['due_amount'], 2); ?></span></td>
                                 <td>
                                     <span class="<?php echo $status_class; ?>">
-                                        <?php echo htmlspecialchars($status); ?>
+                                        <?php echo $display_status; ?>
                                     </span>
                                 </td>
                                 <td><?php echo $row['payment_date'] ? date('d M, Y', strtotime($row['payment_date'])) : '--'; ?></td>

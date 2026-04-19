@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+require_once '../includes/parent_helpers.php';
 
 // Check if parent is logged in
 if(!isset($_SESSION['parent_id'])) {
@@ -10,32 +11,36 @@ if(!isset($_SESSION['parent_id'])) {
 
 $parent_id = $_SESSION['parent_id'];
 $parent_name = $_SESSION['parent_name'];
-$student_name = $_SESSION['student_name'];
-$student_mobile = $_SESSION['student_mobile'];
+$student_name = $_SESSION['student_name'] ?? '';
+$student_mobile = $_SESSION['student_mobile'] ?? '';
 
-// Get student info and program details
-$query = "SELECT * FROM admission_applications WHERE id = $parent_id";
-$result = mysqli_query($conn, $query);
-$student = mysqli_fetch_assoc($result);
+$student_ids = getParentStudentIds($conn, $parent_id, $student_mobile);
+$firstStudent = getFirstParentStudent($conn, $parent_id, $student_mobile);
+$student_id = $firstStudent['id'] ?? 0;
+$student_name = $student_name ?: trim(($firstStudent['first_name'] ?? '') . ' ' . ($firstStudent['last_name'] ?? ''));
 
-// Get student ID from students table using mobile
-$std_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
-$std_result = mysqli_query($conn, $std_query);
-$std_data = mysqli_fetch_assoc($std_result);
-$student_id = $std_data['id'] ?? 0;
+// If no student rows were found through the parent mapping, fall back to old admission application logic.
+if (empty($student_ids) && !empty($student_mobile)) {
+    $student_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
+    $student_result = mysqli_query($conn, $student_query);
+    $student_data = mysqli_fetch_assoc($student_result);
+    $student_id = $student_data['id'] ?? 0;
+}
+
+$student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
 
 // Get attendance count for this month
 $attendance_query = "SELECT COUNT(*) as total_present FROM attendance 
                      WHERE YEAR(date) = YEAR(NOW()) 
                      AND MONTH(date) = MONTH(NOW())
-                     AND student_id = $student_id
+                     AND student_id IN ($student_ids_list)
                      AND status = 'Present'";
 $attendance_result = mysqli_query($conn, $attendance_query);
 $attendance = mysqli_fetch_assoc($attendance_result);
 
 // Get pending fees for this student
-$fees_query = "SELECT SUM(due_amount) as total_pending FROM fee_collections 
-               WHERE student_id = $student_id AND status != 'Paid'";
+$fees_query = "SELECT SUM(expected_amount - paid_amount) as total_pending FROM fee_collections 
+               WHERE student_id IN ($student_ids_list) AND payment_status != 'paid'";
 $fees_result = mysqli_query($conn, $fees_query);
 $fees = mysqli_fetch_assoc($fees_result);
 ?>
@@ -394,12 +399,7 @@ $fees = mysqli_fetch_assoc($fees_result);
                         Fees & Payments
                     </a>
                 </li>
-                <li>
-                    <a href="progress.php">
-                        <i class="fas fa-graduation-cap"></i>
-                        Progress
-                    </a>
-                </li>
+                
                 <li>
                     <a href="../parent-logout.php">
                         <i class="fas fa-sign-out-alt"></i>
@@ -428,28 +428,7 @@ $fees = mysqli_fetch_assoc($fees_result);
                 </div>
             </div>
 
-            <!-- Student Info Card -->
-            <div class="student-info-card">
-                <h4><i class="fas fa-user-graduate me-2"></i>Your Child's Information</h4>
-                <div class="info-row">
-                    <div class="info-item">
-                        <p>Student Name</p>
-                        <strong><?php echo htmlspecialchars($student['full_name']); ?></strong>
-                    </div>
-                    <div class="info-item">
-                        <p>Program</p>
-                        <strong><?php echo htmlspecialchars($student['program']); ?> - <?php echo htmlspecialchars($student['group']); ?></strong>
-                    </div>
-                    <div class="info-item">
-                        <p>Enrollment Status</p>
-                        <strong style="color: #4caf50;">✓ Approved</strong>
-                    </div>
-                    <div class="info-item">
-                        <p>Application Date</p>
-                        <strong><?php echo date('d M, Y', strtotime($student['created_at'])); ?></strong>
-                    </div>
-                </div>
-            </div>
+
 
             <!-- Stats Grid -->
             <div class="stats-grid">
@@ -471,11 +450,7 @@ $fees = mysqli_fetch_assoc($fees_result);
                     <div class="stat-label">Pending Fees</div>
                 </div>
                 
-                <div class="stat-card">
-                    <div class="stat-icon purple"><i class="fas fa-chart-line"></i></div>
-                    <div class="stat-value">--</div>
-                    <div class="stat-label">Overall Progress</div>
-                </div>
+
             </div>
 
             <!-- Quick Links -->
@@ -494,10 +469,7 @@ $fees = mysqli_fetch_assoc($fees_result);
                         <i class="fas fa-receipt"></i>
                         <span>Fee Details</span>
                     </a>
-                    <a href="progress.php" class="quick-link">
-                        <i class="fas fa-graduation-cap"></i>
-                        <span>Check Progress</span>
-                    </a>
+
                 </div>
             </div>
         </div>

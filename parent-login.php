@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once 'includes/db.php';
+require_once 'includes/parent_helpers.php';
 
 // If already logged in, redirect to dashboard
 if(isset($_SESSION['parent_id'])) {
@@ -12,32 +13,78 @@ $error = '';
 
 // Handle login
 if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
-    $parent_email = mysqli_real_escape_string($conn, $_POST['email']);
+    $username = mysqli_real_escape_string($conn, $_POST['username']);
     $password = $_POST['password'];
-    
-    // Check in admission_applications table first
-    $query = "SELECT * FROM admission_applications WHERE parent_email = '$parent_email' AND status = 'Approved' LIMIT 1";
-    $result = mysqli_query($conn, $query);
-    
-    if(mysqli_num_rows($result) > 0) {
-        $parent = mysqli_fetch_assoc($result);
-        
-        // For now, password is the student's mobile number (as shown in form)
-        // You can change this to a hashed password system
-        if($password == $parent['mobile']) {
+    $parent = null;
+
+    if (parentTableExists($conn)) {
+        $parent = getParentByUsername($conn, $username);
+    }
+
+    if ($parent) {
+        if (!empty($parent['password_hash']) && password_verify($password, $parent['password_hash'])) {
             $_SESSION['parent_id'] = $parent['id'];
             $_SESSION['parent_name'] = $parent['parent_name'];
             $_SESSION['parent_email'] = $parent['parent_email'];
-            $_SESSION['student_name'] = $parent['full_name'];
-            $_SESSION['student_mobile'] = $parent['mobile'];
-            
+            $_SESSION['parent_username'] = $parent['username'];
+
+            $student = getFirstParentStudent($conn, $parent['id']);
+            if ($student) {
+                $_SESSION['student_name'] = trim($student['first_name'] . ' ' . $student['last_name']);
+                $_SESSION['student_mobile'] = $student['phone'];
+            }
+
             header("Location: parent/dashboard.php");
             exit();
-        } else {
-            $error = "Invalid password. Use your child's mobile number.";
         }
+
+        $error = "Invalid username or password. Contact admin if you do not have credentials.";
     } else {
-        $error = "Parent email not found or admission not approved.";
+        // Fallback to admission_applications for legacy accounts.
+        $hasFullName = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'full_name'")) > 0;
+        $hasFirstName = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'first_name'")) > 0;
+        $hasLastName = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'last_name'")) > 0;
+        $hasMobile = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'mobile'")) > 0;
+        $hasPhone = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'phone'")) > 0;
+
+        if ($hasFullName) {
+            $nameExpr = "COALESCE(full_name, CONCAT(first_name, ' ', last_name)) AS full_name";
+        } elseif ($hasFirstName && $hasLastName) {
+            $nameExpr = "CONCAT(first_name, ' ', last_name) AS full_name";
+        } else {
+            $nameExpr = "'' AS full_name";
+        }
+
+        if ($hasMobile && $hasPhone) {
+            $phoneExpr = "COALESCE(mobile, phone) AS mobile";
+        } elseif ($hasMobile) {
+            $phoneExpr = "mobile AS mobile";
+        } elseif ($hasPhone) {
+            $phoneExpr = "phone AS mobile";
+        } else {
+            $phoneExpr = "'' AS mobile";
+        }
+
+        $query = "SELECT *, $nameExpr, $phoneExpr FROM admission_applications WHERE username = '$username' AND status = 'Approved' LIMIT 1";
+        $result = mysqli_query($conn, $query);
+
+        if(mysqli_num_rows($result) > 0) {
+            $parent = mysqli_fetch_assoc($result);
+
+            if(!empty($parent['password_hash']) && password_verify($password, $parent['password_hash'])) {
+                $_SESSION['parent_id'] = $parent['id'];
+                $_SESSION['parent_name'] = $parent['parent_name'];
+                $_SESSION['parent_email'] = $parent['parent_email'];
+                $_SESSION['student_name'] = $parent['full_name'];
+                $_SESSION['student_mobile'] = $parent['mobile'];
+                $_SESSION['parent_username'] = $parent['username'];
+
+                header("Location: parent/dashboard.php");
+                exit();
+            }
+        }
+
+        $error = "Username not found or admission not approved.";
     }
 }
 ?>
@@ -256,15 +303,15 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
 
                 <form method="POST" action="">
                     <div class="form-group">
-                        <label class="form-label">Parent Email Address</label>
-                        <input type="email" class="form-control" name="email" placeholder="Enter your registered email" required>
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-control" name="username" placeholder="Enter your assigned username" required>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">Password</label>
                         <input type="password" class="form-control" name="password" placeholder="Enter password" required>
                         <div class="password-hint">
-                            <i class="fas fa-info-circle"></i> Use your child's mobile number as password
+                            <i class="fas fa-info-circle"></i> Use the username and password assigned by admin.
                         </div>
                     </div>
 

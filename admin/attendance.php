@@ -22,7 +22,7 @@ $summary_query = "SELECT
 $summary = mysqli_fetch_assoc(mysqli_query($conn, $summary_query));
 
 // Get recent attendance records
-$recent_query = "SELECT a.*, s.name AS student_name, c.class_name 
+$recent_query = "SELECT a.*, CONCAT(s.first_name, ' ', s.last_name) AS student_name, c.class_name 
                  FROM attendance a
                  JOIN students s ON a.student_id = s.id
                  JOIN classes c ON s.class_id = c.id

@@ -30,7 +30,7 @@ if(isset($_POST['id'])) {
                  style="border-radius: 50%;">
         <?php endif; ?>
         <h5 class="mt-3"><?php echo $teacher['first_name'] . ' ' . $teacher['last_name']; ?></h5>
-        <span class="badge bg-primary"><?php echo $teacher['teacher_id']; ?></span>
+        <span class="badge bg-primary"><?php echo $teacher['teacher_id'] ?? 'TCH' . $teacher['id']; ?></span>
     </div>
     
     <table class="table table-bordered">

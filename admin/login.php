@@ -5,6 +5,128 @@ require_once '../includes/db.php';
 $error = '';
 $success = '';
 
+function studentNameSelectExpression($conn) {
+    static $expression = null;
+    if ($expression !== null) {
+        return $expression;
+    }
+
+    $firstNameExists = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'first_name'")) > 0;
+    $lastNameExists = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'last_name'")) > 0;
+    $nameExists = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'name'")) > 0;
+
+    if ($firstNameExists && $lastNameExists) {
+        $expression = "CONCAT(s.first_name, ' ', s.last_name)";
+    } elseif ($nameExists) {
+        $expression = 's.name';
+    } else {
+        $expression = 'u.username';
+    }
+
+    return $expression;
+}
+
+function admissionColumnExists($conn, $column) {
+    return mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE '$column'")) > 0;
+}
+
+function getAdmissionApplicationQuery($conn, $username) {
+    $hasFullName = admissionColumnExists($conn, 'full_name');
+    $hasFirstName = admissionColumnExists($conn, 'first_name');
+    $hasLastName = admissionColumnExists($conn, 'last_name');
+    $hasMobile = admissionColumnExists($conn, 'mobile');
+    $hasPhone = admissionColumnExists($conn, 'phone');
+
+    if ($hasFullName) {
+        $nameExpr = "COALESCE(full_name, CONCAT(first_name, ' ', last_name)) AS full_name";
+    } elseif ($hasFirstName && $hasLastName) {
+        $nameExpr = "CONCAT(first_name, ' ', last_name) AS full_name";
+    } else {
+        $nameExpr = "'' AS full_name";
+    }
+
+    if ($hasMobile && $hasPhone) {
+        $phoneExpr = "COALESCE(mobile, phone) AS mobile";
+    } elseif ($hasMobile) {
+        $phoneExpr = "mobile AS mobile";
+    } elseif ($hasPhone) {
+        $phoneExpr = "phone AS mobile";
+    } else {
+        $phoneExpr = "'' AS mobile";
+    }
+
+    return "SELECT *, $nameExpr, $phoneExpr FROM admission_applications WHERE username = '$username' LIMIT 1";
+}
+
+function generateStudentID($conn) {
+    $prefix = 'STU';
+    $year = date('Y');
+    $pattern = $prefix . $year . '%';
+
+    $query = "SELECT student_id FROM students WHERE student_id LIKE '$pattern' ORDER BY student_id DESC LIMIT 1";
+    $result = mysqli_query($conn, $query);
+
+    if($result && mysqli_num_rows($result) > 0) {
+        $row = mysqli_fetch_assoc($result);
+        $lastId = $row['student_id'];
+        $lastNumber = intval(substr($lastId, strlen($prefix . $year)));
+        $count = $lastNumber + 1;
+    } else {
+        $count = 1;
+    }
+
+    do {
+        $newId = $prefix . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+        $checkQuery = "SELECT id FROM students WHERE student_id = '$newId' LIMIT 1";
+        $checkResult = mysqli_query($conn, $checkQuery);
+        $count++;
+    } while($checkResult && mysqli_num_rows($checkResult) > 0);
+
+    return $newId;
+}
+
+function createStudentUserFromAdmission($conn, $admission) {
+    if(empty($admission['username']) || empty($admission['password_hash'])) {
+        return false;
+    }
+
+    $username = mysqli_real_escape_string($conn, $admission['username']);
+    $email = mysqli_real_escape_string($conn, $admission['email']);
+    $password_hash = mysqli_real_escape_string($conn, $admission['password_hash']);
+    $mobile = mysqli_real_escape_string($conn, $admission['mobile']);
+    $gender = mysqli_real_escape_string($conn, $admission['gender']);
+    $address = mysqli_real_escape_string($conn, $admission['address']);
+    $full_name = trim($admission['full_name']);
+    $nameParts = explode(' ', $full_name);
+    $first_name = mysqli_real_escape_string($conn, array_shift($nameParts));
+    $last_name = mysqli_real_escape_string($conn, trim(implode(' ', $nameParts)));
+    if(empty($last_name)) {
+        $last_name = '';
+    }
+
+    $checkUser = mysqli_query($conn, "SELECT id FROM users WHERE username = '$username' LIMIT 1");
+    if($checkUser && mysqli_num_rows($checkUser) > 0) {
+        return true;
+    }
+
+    $user_query = "INSERT INTO users (username, password, email, role, status) VALUES ('$username', '$password_hash', '$email', 'student', 1)";
+    if(!mysqli_query($conn, $user_query)) {
+        return false;
+    }
+
+    $user_id = mysqli_insert_id($conn);
+    $student_unique_id = generateStudentID($conn);
+
+    $student_query = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, photo, class_id, admission_date, status) 
+                      VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', '', '', '$email', '$mobile', NULL, '$gender', '$address', NULL, NULL, NOW(), 1)";
+    if(!mysqli_query($conn, $student_query)) {
+        mysqli_query($conn, "DELETE FROM users WHERE id = $user_id");
+        return false;
+    }
+
+    return true;
+}
+
 // Check if already logged in
 if(isset($_SESSION['admin_id'])) {
     header("Location: dashboard.php");
@@ -20,11 +142,12 @@ if(isset($_POST['login'])) {
         $error = "Please fill in all fields";
     } else {
         // Query to check user
+        $studentDisplayExpr = studentNameSelectExpression($conn);
         $query = "SELECT u.*, 
                   CASE 
                     WHEN u.role = 'admin' THEN 'Admin'
                     WHEN u.role = 'teacher' THEN CONCAT(t.first_name, ' ', t.last_name)
-                    WHEN u.role = 'student' THEN s.name
+                    WHEN u.role = 'student' THEN $studentDisplayExpr
                   END as display_name
                   FROM users u 
                   LEFT JOIN teachers t ON u.id = t.user_id
@@ -61,7 +184,38 @@ if(isset($_POST['login'])) {
                 $error = "Invalid password!";
             }
         } else {
-            $error = "Username not found or account inactive!";
+            $checkAdmissionQuery = getAdmissionApplicationQuery($conn, $username);
+            $checkAdmission = mysqli_query($conn, $checkAdmissionQuery);
+            if($checkAdmission && mysqli_num_rows($checkAdmission) > 0) {
+                $admissionUser = mysqli_fetch_assoc($checkAdmission);
+                $status = $admissionUser['status'] ?: 'Unknown';
+
+                if($status === 'Approved') {
+                    if(!empty($admissionUser['password_hash']) && password_verify($password, $admissionUser['password_hash'])) {
+                        if(createStudentUserFromAdmission($conn, $admissionUser)) {
+                            $studentDisplayExpr = studentNameSelectExpression($conn);
+                            $userResult = mysqli_query($conn, "SELECT u.*, $studentDisplayExpr AS display_name FROM users u LEFT JOIN students s ON u.id = s.user_id WHERE u.username = '$username' AND u.status = 1 LIMIT 1");
+                            if($userResult && mysqli_num_rows($userResult) == 1) {
+                                $user = mysqli_fetch_assoc($userResult);
+                                $_SESSION['user_id'] = $user['id'];
+                                $_SESSION['username'] = $user['username'];
+                                $_SESSION['role'] = $user['role'];
+                                $_SESSION['display_name'] = $user['display_name'];
+                                mysqli_query($conn, "UPDATE users SET last_login = NOW() WHERE id = " . $user['id']);
+                                header("Location: ../student/dashboard.php");
+                                exit();
+                            }
+                        }
+                        $error = "Unable to create student account. Please contact admin.";
+                    } else {
+                        $error = "Invalid username or password. Contact admin if you do not have credentials.";
+                    }
+                } else {
+                    $error = "This username belongs to a parent portal account. Please login at parent-login.php. Application status: $status.";
+                }
+            } else {
+                $error = "Username not found or account inactive!";
+            }
         }
     }
 }

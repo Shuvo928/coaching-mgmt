@@ -7,6 +7,10 @@ require_once '../includes/auth.php';
 checkAuth();
 checkRole(['admin']);
 
+// Check if assigned_subjects column exists
+$assignedSubjectsColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teachers LIKE 'assigned_subjects'");
+$assignedSubjectsColumnExists = ($assignedSubjectsColumnCheck && mysqli_num_rows($assignedSubjectsColumnCheck) > 0);
+
 // Handle Delete Request
 if(isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     $teacher_id = $_GET['delete'];
@@ -545,7 +549,7 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
-                                <td><span class="badge bg-light text-dark"><?php echo $row['teacher_id']; ?></span></td>
+                                <td><span class="badge bg-light text-dark"><?php echo $row['teacher_id'] ?? 'TCH' . $row['id']; ?></span></td>
                                 <td><?php echo substr($row['qualification'], 0, 30) . '...'; ?></td>
                                 <td><?php echo $row['phone']; ?></td>
                                 <td>
@@ -618,10 +622,15 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Preferred Subjects *</label>
+                            <label class="form-label">Preferred Subjects<?php echo $assignedSubjectsColumnExists ? ' *' : ''; ?></label>
                             <textarea class="form-control" name="assigned_subjects" id="assigned_subjects" 
-                                      rows="3" placeholder="e.g., Mathematics, Physics, Chemistry, English" required></textarea>
+                                      rows="3" placeholder="e.g., Mathematics, Physics, Chemistry, English"<?php echo $assignedSubjectsColumnExists ? ' required' : ''; ?>></textarea>
                             <small class="text-muted">List the subjects this teacher prefers or is qualified to teach.</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Class *</label>
+                            <input type="text" class="form-control" name="class_name" id="class_name" 
+                                   placeholder="e.g., Class 9, Class 10, SSC Batch" required>
                         </div>
 
                         <div class="mb-3">
@@ -748,7 +757,9 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                     document.getElementById('email').value = data.email;
                     document.getElementById('phone').value = data.phone;
                     document.getElementById('qualification').value = data.qualification;
+                    <?php if ($assignedSubjectsColumnExists): ?>
                     document.getElementById('assigned_subjects').value = data.assigned_subjects || '';
+                    <?php endif; ?>
                     document.getElementById('joining_date').value = data.joining_date;
                     document.getElementById('address').value = data.address;
                     document.getElementById('username').value = data.username;

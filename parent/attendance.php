@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+require_once '../includes/parent_helpers.php';
 
 // Check if parent is logged in
 if(!isset($_SESSION['parent_id'])) {
@@ -10,18 +11,25 @@ if(!isset($_SESSION['parent_id'])) {
 
 $parent_id = $_SESSION['parent_id'];
 $parent_name = $_SESSION['parent_name'];
-$student_name = $_SESSION['student_name'];
-$student_mobile = $_SESSION['student_mobile'];
+$student_name = $_SESSION['student_name'] ?? '';
+$student_mobile = $_SESSION['student_mobile'] ?? '';
 
 // Get current month and year
 $current_month = isset($_GET['month']) ? (int)$_GET['month'] : date('m');
 $current_year = isset($_GET['year']) ? (int)$_GET['year'] : date('Y');
 
-// Get student info to find student ID
-$student_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
-$student_result = mysqli_query($conn, $student_query);
-$student = mysqli_fetch_assoc($student_result);
-$student_id = $student['id'] ?? 0;
+$student_ids = getParentStudentIds($conn, $parent_id, $student_mobile);
+$student_id = $student_ids[0] ?? 0;
+$student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
+
+// If no student rows were found through the parent mapping, fall back to old admission application logic.
+if (empty($student_ids) && !empty($student_mobile)) {
+    $student_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
+    $student_result = mysqli_query($conn, $student_query);
+    $student = mysqli_fetch_assoc($student_result);
+    $student_id = $student['id'] ?? 0;
+    $student_ids_list = $student_id > 0 ? (string) $student_id : '0';
+}
 
 // Get monthly attendance summary
 $attendance_query = "SELECT 
@@ -343,12 +351,7 @@ $daily_result = mysqli_query($conn, $daily_query);
                         Fees & Payments
                     </a>
                 </li>
-                <li>
-                    <a href="progress.php">
-                        <i class="fas fa-graduation-cap"></i>
-                        Progress
-                    </a>
-                </li>
+                
                 <li>
                     <a href="../parent-logout.php">
                         <i class="fas fa-sign-out-alt"></i>

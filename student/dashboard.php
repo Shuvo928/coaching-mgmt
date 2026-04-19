@@ -8,6 +8,36 @@ checkRole(['student']);
 
 $user = getCurrentUser($conn);
 
+// Check if classes table has section column
+$classesSectionColumn = mysqli_query($conn, "SHOW COLUMNS FROM classes LIKE 'section'");
+$classesHasSection = ($classesSectionColumn && mysqli_num_rows($classesSectionColumn) > 0);
+
+// Check what phone column name exists in admission_applications
+$admissionPhoneColumn = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'mobile'");
+$admissionHasMobile = ($admissionPhoneColumn && mysqli_num_rows($admissionPhoneColumn) > 0);
+$admissionPhoneField = $admissionHasMobile ? 'mobile' : 'phone';
+
+// Check if exam_types table exists
+$examTypesTableExists = false;
+$examTypesCheck = mysqli_query($conn, "SHOW TABLES LIKE 'exam_types'");
+if ($examTypesCheck && mysqli_num_rows($examTypesCheck) > 0) {
+    $examTypesTableExists = true;
+}
+
+// Check if results table has percentage column
+$resultsPercentageExists = false;
+$resultsPercentageCheck = mysqli_query($conn, "SHOW COLUMNS FROM results LIKE 'percentage'");
+if ($resultsPercentageCheck && mysqli_num_rows($resultsPercentageCheck) > 0) {
+    $resultsPercentageExists = true;
+}
+
+// Check if results table has marks_obtained and total_marks columns
+$resultsMarksColumns = false;
+$marksObtainedCheck = mysqli_query($conn, "SHOW COLUMNS FROM results LIKE 'marks_obtained'");
+$totalMarksCheck = mysqli_query($conn, "SHOW COLUMNS FROM results LIKE 'total_marks'");
+$resultsMarksColumns = ($marksObtainedCheck && mysqli_num_rows($marksObtainedCheck) > 0) && 
+                        ($totalMarksCheck && mysqli_num_rows($totalMarksCheck) > 0);
+
 $student = null;
 $branch_name = 'Not assigned';
 $class_time = '2:20 PM - 6:45 PM (Saturday-Thursday)';
@@ -68,10 +98,13 @@ function formatTimeRange($start, $end) {
 }
 
 if (!empty($user['id'])) {
-    $student_query = "SELECT s.*, c.class_name, c.section, aa.program, aa.`group` AS group_name, aa.monthly_fee, aa.transaction_id 
+    // Build dynamic SELECT for class section if column exists
+    $sectionSelect = $classesHasSection ? 'c.section' : "'' AS section";
+    
+    $student_query = "SELECT s.*, c.class_name, $sectionSelect, aa.program, aa.`group` AS group_name, aa.monthly_fee, aa.transaction_id 
                       FROM students s 
                       LEFT JOIN classes c ON s.class_id = c.id
-                      LEFT JOIN admission_applications aa ON s.phone = aa.mobile 
+                      LEFT JOIN admission_applications aa ON s.phone = aa.$admissionPhoneField 
                       WHERE s.user_id = " . intval($user['id']) . " LIMIT 1";
     $student_result = mysqli_query($conn, $student_query);
     $student = mysqli_fetch_assoc($student_result);
@@ -79,33 +112,66 @@ if (!empty($user['id'])) {
     if ($student) {
         $branch_name = getBranchName($student['address'] ?? '');
 
-        $routine_query = "SELECT er.*, et.exam_name, sub.subject_name 
-                          FROM exam_routine er 
-                          LEFT JOIN exam_types et ON er.exam_type_id = et.id 
-                          LEFT JOIN subjects sub ON er.subject_id = sub.id 
-                          WHERE er.class_id = " . intval($student['class_id']) . " 
-                          ORDER BY er.exam_date ASC LIMIT 6";
+        // Build routine query with conditional exam_types JOIN
+        if ($examTypesTableExists) {
+            $routine_query = "SELECT er.*, et.exam_name, sub.subject_name 
+                              FROM exam_routine er 
+                              LEFT JOIN exam_types et ON er.exam_type_id = et.id 
+                              LEFT JOIN subjects sub ON er.subject_id = sub.id 
+                              WHERE er.class_id = " . intval($student['class_id']) . " 
+                              ORDER BY er.exam_date ASC LIMIT 6";
+        } else {
+            $routine_query = "SELECT er.*, NULL AS exam_name, sub.subject_name 
+                              FROM exam_routine er 
+                              LEFT JOIN subjects sub ON er.subject_id = sub.id 
+                              WHERE er.class_id = " . intval($student['class_id']) . " 
+                              ORDER BY er.exam_date ASC LIMIT 6";
+        }
         $routine_result = mysqli_query($conn, $routine_query);
         while ($routine = mysqli_fetch_assoc($routine_result)) {
             $class_routine[] = $routine;
         }
 
-        $results_query = "SELECT r.*, et.exam_name, sub.subject_name 
-                          FROM results r 
-                          LEFT JOIN exam_types et ON r.exam_type_id = et.id 
-                          LEFT JOIN subjects sub ON r.subject_id = sub.id 
-                          WHERE r.student_id = " . intval($student['id']) . " 
-                          ORDER BY r.id DESC LIMIT 6";
+        // Build results query with conditional exam_types JOIN
+        if ($examTypesTableExists) {
+            $results_query = "SELECT r.*, et.exam_name, sub.subject_name 
+                              FROM results r 
+                              LEFT JOIN exam_types et ON r.exam_type_id = et.id 
+                              LEFT JOIN subjects sub ON r.subject_id = sub.id 
+                              WHERE r.student_id = " . intval($student['id']) . " 
+                              ORDER BY r.id DESC LIMIT 6";
+        } else {
+            $results_query = "SELECT r.*, NULL AS exam_name, sub.subject_name 
+                              FROM results r 
+                              LEFT JOIN subjects sub ON r.subject_id = sub.id 
+                              WHERE r.student_id = " . intval($student['id']) . " 
+                              ORDER BY r.id DESC LIMIT 6";
+        }
         $results_result = mysqli_query($conn, $results_query);
         while ($result = mysqli_fetch_assoc($results_result)) {
             $results[] = $result;
         }
 
-        $stats_query = "SELECT 
-                            AVG(percentage) as avg_percentage, 
-                            COUNT(*) as total_results 
-                        FROM results 
-                        WHERE student_id = " . intval($student['id']);
+        // Build stats query with conditional percentage and marks columns
+        if ($resultsPercentageExists) {
+            $stats_query = "SELECT 
+                                AVG(percentage) as avg_percentage, 
+                                COUNT(*) as total_results 
+                            FROM results 
+                            WHERE student_id = " . intval($student['id']);
+        } else if ($resultsMarksColumns) {
+            $stats_query = "SELECT 
+                                AVG(CASE WHEN total_marks > 0 THEN (marks_obtained / total_marks * 100) ELSE 0 END) as avg_percentage, 
+                                COUNT(*) as total_results 
+                            FROM results 
+                            WHERE student_id = " . intval($student['id']);
+        } else {
+            $stats_query = "SELECT 
+                                NULL as avg_percentage, 
+                                COUNT(*) as total_results 
+                            FROM results 
+                            WHERE student_id = " . intval($student['id']);
+        }
         $stats_result = mysqli_query($conn, $stats_query);
         $overall_stats = mysqli_fetch_assoc($stats_result);
     }
@@ -238,11 +304,28 @@ if (!empty($user['id'])) {
                                 </thead>
                                 <tbody>
                                     <?php foreach ($results as $result): ?>
-                                        <?php $percent = $result['percentage'] !== null ? floatval($result['percentage']) : null; ?>
+                                        <?php 
+                                            // Calculate percentage if columns exist
+                                            if ($resultsPercentageExists) {
+                                                $percent = $result['percentage'] !== null ? floatval($result['percentage']) : null;
+                                            } else if ($resultsMarksColumns) {
+                                                $percent = (isset($result['total_marks']) && $result['total_marks'] > 0) 
+                                                    ? floatval($result['marks_obtained']) / floatval($result['total_marks']) * 100 
+                                                    : null;
+                                            } else {
+                                                $percent = null;
+                                            }
+                                        ?>
                                         <tr>
                                             <td><?php echo htmlspecialchars($result['exam_name'] ?? 'N/A'); ?></td>
                                             <td><?php echo htmlspecialchars($result['subject_name'] ?? 'N/A'); ?></td>
-                                            <td><?php echo htmlspecialchars($result['marks_obtained'] . '/' . $result['total_marks']); ?></td>
+                                            <td><?php 
+                                                if ($resultsMarksColumns && isset($result['marks_obtained']) && isset($result['total_marks'])) {
+                                                    echo htmlspecialchars($result['marks_obtained'] . '/' . $result['total_marks']); 
+                                                } else {
+                                                    echo 'N/A';
+                                                }
+                                            ?></td>
                                             <td><?php echo htmlspecialchars(getPerformanceComment($percent)); ?></td>
                                         </tr>
                                     <?php endforeach; ?>

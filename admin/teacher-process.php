@@ -2,11 +2,31 @@
 session_start();
 require_once '../includes/db.php';
 
+// Check if teacher_id column exists
+$teacherIdColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teachers LIKE 'teacher_id'");
+$teacherIdColumnExists = ($teacherIdColumnCheck && mysqli_num_rows($teacherIdColumnCheck) > 0);
+
+// Check if assigned_subjects column exists
+$assignedSubjectsColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teachers LIKE 'assigned_subjects'");
+$assignedSubjectsColumnExists = ($assignedSubjectsColumnCheck && mysqli_num_rows($assignedSubjectsColumnCheck) > 0);
+
+// Check if class_id column exists in teacher_subjects table
+$teacherSubjectsClassIdColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+$teacherSubjectsClassIdColumnExists = ($teacherSubjectsClassIdColumnCheck && mysqli_num_rows($teacherSubjectsClassIdColumnCheck) > 0);
+
 // Function to generate unique teacher ID
 function generateTeacherID($conn) {
+    global $teacherIdColumnExists;
     $prefix = 'TCH';
     $year = date('Y');
-    $query = "SELECT COUNT(*) as total FROM teachers WHERE teacher_id LIKE '$prefix$year%'";
+    
+    if ($teacherIdColumnExists) {
+        $query = "SELECT COUNT(*) as total FROM teachers WHERE teacher_id LIKE '$prefix$year%'";
+    } else {
+        // If teacher_id column doesn't exist, use id column or just count all teachers
+        $query = "SELECT COUNT(*) as total FROM teachers";
+    }
+    
     $result = mysqli_query($conn, $query);
     $row = mysqli_fetch_assoc($result);
     $count = $row['total'] + 1;
@@ -51,8 +71,19 @@ function autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects) {
                 $check_query = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id LIMIT 1";
                 $check_result = mysqli_query($conn, $check_query);
                 if($check_result && mysqli_num_rows($check_result) === 0) {
+                    global $teacherSubjectsClassIdColumnExists;
                     $class_id = intval($subject['class_id']);
-                    $insert_query = "INSERT INTO teacher_subjects (teacher_id, subject_id, class_id) VALUES ($teacher_id, $subject_id, " . ($class_id ? $class_id : 'NULL') . ")";
+                    
+                    // Build INSERT query conditionally
+                    $columns = "teacher_id, subject_id";
+                    $values = "$teacher_id, $subject_id";
+                    
+                    if ($teacherSubjectsClassIdColumnExists) {
+                        $columns .= ", class_id";
+                        $values .= ", " . ($class_id ? $class_id : 'NULL');
+                    }
+                    
+                    $insert_query = "INSERT INTO teacher_subjects ($columns) VALUES ($values)";
                     mysqli_query($conn, $insert_query);
                 }
             }
@@ -96,6 +127,10 @@ if(isset($_POST['submit'])) {
         // Insert new teacher
         $teacher_unique_id = generateTeacherID($conn);
         
+        // Check if teacher_id column exists in teachers table
+        $teacherIdColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teachers LIKE 'teacher_id'");
+        $teacherIdColumnExists = ($teacherIdColumnCheck && mysqli_num_rows($teacherIdColumnCheck) > 0);
+        
         // Start transaction
         mysqli_begin_transaction($conn);
         
@@ -111,12 +146,22 @@ if(isset($_POST['submit'])) {
             
             $user_id = mysqli_insert_id($conn);
             
-            // Insert into teachers table
-            $teacher_query = "INSERT INTO teachers (user_id, teacher_id, first_name, last_name, email, 
-                              phone, qualification, assigned_subjects, joining_date, address, photo, status) 
-                              VALUES ($user_id, '$teacher_unique_id', '$first_name', '$last_name', 
-                              '$email', '$phone', '$qualification', '$assigned_subjects', '$joining_date', 
-                              '$address', '$photo', 1)";
+            // Insert into teachers table - conditionally include teacher_id and assigned_subjects columns
+            global $teacherIdColumnExists, $assignedSubjectsColumnExists;
+            $columns = "user_id, first_name, last_name, email, phone, qualification, joining_date, address, photo, status";
+            $values = "$user_id, '$first_name', '$last_name', '$email', '$phone', '$qualification', '$joining_date', '$address', '$photo', 1";
+            
+            if ($teacherIdColumnExists) {
+                $columns .= ", teacher_id";
+                $values .= ", '$teacher_unique_id'";
+            }
+            
+            if ($assignedSubjectsColumnExists) {
+                $columns .= ", assigned_subjects";
+                $values .= ", '$assigned_subjects'";
+            }
+            
+            $teacher_query = "INSERT INTO teachers ($columns) VALUES ($values)";
             
             if(!mysqli_query($conn, $teacher_query)) {
                 throw new Exception("Error adding teacher details");
@@ -149,18 +194,23 @@ if(isset($_POST['submit'])) {
             }
         }
         
-        // Update query
+        // Update query - conditionally include assigned_subjects column
+        global $assignedSubjectsColumnExists;
         $update_query = "UPDATE teachers SET 
                          first_name = '$first_name',
                          last_name = '$last_name',
                          email = '$email',
                          phone = '$phone',
                          qualification = '$qualification',
-                         assigned_subjects = '$assigned_subjects',
                          joining_date = '$joining_date',
                          address = '$address',
-                         photo = '$photo'
-                         WHERE id = $teacher_id";
+                         photo = '$photo'";
+        
+        if ($assignedSubjectsColumnExists) {
+            $update_query .= ", assigned_subjects = '$assigned_subjects'";
+        }
+        
+        $update_query .= " WHERE id = $teacher_id";
         
         if(mysqli_query($conn, $update_query)) {
             // Update username in users table

@@ -18,35 +18,32 @@ $summary = [];
 $monthly_query = "SELECT SUM(paid_amount) as total FROM fee_collections 
                   WHERE MONTH(payment_date) = $current_month 
                   AND YEAR(payment_date) = $current_year 
-                  AND status = 'Paid'";
+                  AND payment_status = 'paid'";
 $monthly_result = mysqli_query($conn, $monthly_query);
 $summary['monthly_collection'] = mysqli_fetch_assoc($monthly_result)['total'] ?? 0;
 
 // Total pending fees
-$pending_query = "SELECT SUM(due_amount) as total FROM fee_collections WHERE status != 'Paid'";
+$pending_query = "SELECT SUM(expected_amount - paid_amount) as total FROM fee_collections WHERE payment_status != 'paid'";
 $pending_result = mysqli_query($conn, $pending_query);
 $summary['pending_fees'] = mysqli_fetch_assoc($pending_result)['total'] ?? 0;
 
 // Total students with pending fees
 $pending_students = mysqli_query($conn, "SELECT COUNT(DISTINCT student_id) as total 
-                                          FROM fee_collections WHERE status != 'Paid'");
+                                          FROM fee_collections WHERE payment_status != 'paid'");
 $summary['pending_students'] = mysqli_fetch_assoc($pending_students)['total'] ?? 0;
 
-// Get all fee heads
-$fee_heads = mysqli_query($conn, "SELECT * FROM fees_head ORDER BY fee_name");
+// Get all fee heads (fallback to current fees table)
+$fee_heads = mysqli_query($conn, "SELECT * FROM fees ORDER BY id");
 
 // Get classes
-$classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name, section");
+$classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
 
 // Get recent collections with class-wise fees
-$recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_name, s.student_id as student_code, 
-                                            s.class_id, fh.fee_name, cf.amount as monthly_fee,
-                                            c.class_name, c.section
+$recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' ', s.last_name) AS student_name, s.id AS student_code, 
+                                            s.class_id, c.class_name, fc.payment_status
                                            FROM fee_collections fc
                                            LEFT JOIN students s ON fc.student_id = s.id
-                                           LEFT JOIN fees_head fh ON fc.fee_head_id = fh.id
                                            LEFT JOIN classes c ON s.class_id = c.id
-                                           LEFT JOIN class_fees cf ON s.class_id = cf.class_id AND fc.fee_head_id = cf.fee_head_id
                                            ORDER BY fc.created_at DESC LIMIT 10");
 ?>
 
@@ -597,10 +594,10 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                         <tr>
                                             <td><span class="badge bg-secondary"><?php echo $row['receipt_no']; ?></span></td>
                                             <td><?php echo date('d-m-Y', strtotime($row['payment_date'] ?? date('Y-m-d'))); ?></td>
-                                            <td><?php echo ($row['first_name'] && $row['last_name']) ? $row['first_name'] . ' ' . $row['last_name'] : '<span class="text-warning">Pending Enrollment</span>'; ?></td>
-                                            <td><?php echo $row['fee_name'] ?? '<span class="text-danger">Unknown Fee</span>'; ?></td>
-                                            <td class="amount">৳<?php echo number_format($row['amount'], 2); ?></td>
-                                            <td class="amount">৳<?php echo number_format($row['monthly_fee'] ?? 0, 2); ?></td>
+                                            <td><?php echo $row['student_name'] ?? '<span class="text-warning">Pending Enrollment</span>'; ?></td>
+                                            <td><?php echo ucfirst($row['payment_method'] ?? 'payment'); ?></td>
+                                            <td class="amount">৳<?php echo number_format($row['expected_amount'] ?? 0, 2); ?></td>
+                                            <td class="amount">৳<?php echo number_format($row['paid_amount'] ?? 0, 2); ?></td>
                                             <td><?php echo date('F Y', strtotime($row['payment_date'] ?? date('Y-m-d'))); ?></td>
                                             <td>
                                                 <a href="javascript:void(0)" onclick="printReceipt(<?php echo $row['id']; ?>)" 
@@ -673,13 +670,11 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                 </thead>
                                 <tbody>
                                     <?php
-                                    $monthly_fees = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_name, s.student_id, c.class_name, c.section, fh.fee_name
+                                    $monthly_fees = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' ', s.last_name) AS student_name, s.id AS student_code, c.class_name
                                                                           FROM fee_collections fc
                                                                           LEFT JOIN students s ON fc.student_id = s.id
                                                                           LEFT JOIN classes c ON s.class_id = c.id
-                                                                          LEFT JOIN fees_head fh ON fc.fee_head_id = fh.id
-                                                                          WHERE fh.fee_name != 'Admission Fee'
-                                                                          AND fc.student_id IS NOT NULL
+                                                                          WHERE fc.student_id IS NOT NULL
                                                                           ORDER BY fc.payment_date DESC");
                                     
                                     if(mysqli_num_rows($monthly_fees) > 0):
@@ -688,16 +683,16 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                     ?>
                                     <tr>
                                         <td><?php echo $fee['student_id'] ?? '-'; ?></td>
-                                        <td><?php echo ($fee['first_name'] && $fee['last_name']) ? $fee['first_name'] . ' ' . $fee['last_name'] : '-'; ?></td>
-                                        <td><?php echo isset($fee['class_name']) ? $fee['class_name'] . ' - ' . $fee['section'] : '-'; ?></td>
-                                        <td><?php echo $fee['fee_name'] ?? '-'; ?></td>
+                                        <td><?php echo $fee['student_name'] ?? '-'; ?></td>
+                                        <td><?php echo $fee['class_name'] ?? '-'; ?></td>
+                                        <td><?php echo $fee['payment_method'] ?? '-'; ?></td>
                                         <td><?php echo $payment_month; ?></td>
-                                        <td class="amount">৳<?php echo number_format($fee['amount'], 2); ?></td>
+                                        <td class="amount">৳<?php echo number_format($fee['expected_amount'], 2); ?></td>
                                         <td class="amount">৳<?php echo number_format($fee['paid_amount'], 2); ?></td>
-                                        <td class="amount">৳<?php echo number_format($fee['due_amount'], 2); ?></td>
+                                        <td class="amount">৳<?php echo number_format(($fee['expected_amount'] ?? 0) - ($fee['paid_amount'] ?? 0), 2); ?></td>
                                         <td>
-                                            <span class="status-badge <?php echo strtolower($fee['status']); ?>">
-                                                <?php echo $fee['status']; ?>
+                                            <span class="status-badge <?php echo strtolower($fee['payment_status'] ?? 'unpaid'); ?>">
+                                                <?php echo ucfirst($fee['payment_status'] ?? 'unpaid'); ?>
                                             </span>
                                         </td>
                                         <td>
@@ -752,19 +747,18 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                 </thead>
                                 <tbody>
                                     <?php
-                                    $class_fees = mysqli_query($conn, "SELECT cf.*, c.class_name, c.section, fh.fee_name
+                                    $class_fees = mysqli_query($conn, "SELECT cf.*, c.class_name
                                                                         FROM class_fees cf
                                                                         JOIN classes c ON cf.class_id = c.id
-                                                                        JOIN fees_head fh ON cf.fee_head_id = fh.id
-                                                                        ORDER BY c.class_name, fh.fee_name");
+                                                                        ORDER BY c.class_name");
                                     while($fee = mysqli_fetch_assoc($class_fees)):
                                     ?>
                                     <tr>
-                                        <td><?php echo $fee['class_name']; ?></td>
-                                        <td>Section <?php echo $fee['section']; ?></td>
-                                        <td><?php echo $fee['fee_name']; ?></td>
-                                        <td class="amount">৳<?php echo number_format($fee['amount'], 2); ?></td>
-                                        <td><?php echo $fee['due_date'] ? date('d-m-Y', strtotime($fee['due_date'])) : 'Not set'; ?></td>
+                                        <td><?php echo $fee['class_name'] ?? '-'; ?></td>
+                                        <td>-</td>
+                                        <td>Monthly Fee</td>
+                                        <td class="amount">৳<?php echo number_format($fee['monthly_fee'] ?? 0, 2); ?></td>
+                                        <td>Not set</td>
                                         <td>
                                             <a href="javascript:void(0)" onclick="editClassFee(<?php echo $fee['id']; ?>)" 
                                                class="btn btn-sm btn-outline-primary">
@@ -809,7 +803,7 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                         while($class = mysqli_fetch_assoc($classes)): 
                                         ?>
                                             <option value="<?php echo $class['id']; ?>">
-                                                <?php echo $class['class_name'] . ' - ' . $class['section']; ?>
+                                                <?php echo $class['class_name']; ?>
                                             </option>
                                         <?php endwhile; ?>
                                     </select>
@@ -845,29 +839,26 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                 </thead>
                                 <tbody>
                                     <?php
-                                    $due_list = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_name, 
-                                                                       s.student_id, c.class_name, c.section,
-                                                                       fh.fee_name
+                                    $due_list = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' ', s.last_name) AS student_name, s.id AS student_code, c.class_name
                                                                       FROM fee_collections fc
                                                                       JOIN students s ON fc.student_id = s.id
                                                                       JOIN classes c ON s.class_id = c.id
-                                                                      JOIN fees_head fh ON fc.fee_head_id = fh.id
-                                                                      WHERE fc.status != 'Paid'
-                                                                      ORDER BY fc.due_date ASC");
+                                                                      WHERE fc.payment_status != 'paid'
+                                                                      ORDER BY fc.payment_date ASC");
                                     while($due = mysqli_fetch_assoc($due_list)):
                                     ?>
                                     <tr>
-                                        <td><?php echo $due['student_id']; ?></td>
-                                        <td><?php echo $due['first_name'] . ' ' . $due['last_name']; ?></td>
-                                        <td><?php echo $due['class_name'] . ' - ' . $due['section']; ?></td>
-                                        <td><?php echo $due['fee_name']; ?></td>
-                                        <td class="amount">৳<?php echo number_format($due['amount'], 2); ?></td>
+                                        <td><?php echo $due['student_code'] ?? '-'; ?></td>
+                                        <td><?php echo $due['student_name'] ?? '-'; ?></td>
+                                        <td><?php echo $due['class_name'] ?? '-'; ?></td>
+                                        <td><?php echo $due['payment_method'] ?? '-'; ?></td>
+                                        <td class="amount">৳<?php echo number_format($due['expected_amount'], 2); ?></td>
                                         <td class="amount">৳<?php echo number_format($due['paid_amount'], 2); ?></td>
-                                        <td class="amount text-danger">৳<?php echo number_format($due['due_amount'], 2); ?></td>
-                                        <td><?php echo $due['due_date'] ? date('d-m-Y', strtotime($due['due_date'])) : 'N/A'; ?></td>
+                                        <td class="amount text-danger">৳<?php echo number_format(($due['expected_amount'] ?? 0) - ($due['paid_amount'] ?? 0), 2); ?></td>
+                                        <td><?php echo $due['payment_date'] ? date('d-m-Y', strtotime($due['payment_date'])) : 'N/A'; ?></td>
                                         <td>
-                                            <span class="status-badge <?php echo strtolower($due['status']); ?>">
-                                                <?php echo $due['status']; ?>
+                                            <span class="status-badge <?php echo strtolower($due['payment_status'] ?? 'unpaid'); ?>">
+                                                <?php echo ucfirst($due['payment_status'] ?? 'unpaid'); ?>
                                             </span>
                                         </td>
                                         <td>
@@ -911,7 +902,7 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                                                           FROM students s
                                                                           JOIN classes c ON s.class_id = c.id
                                                                           WHERE s.status = 1
-                                                                          ORDER BY s.first_name");
+                                                                          ORDER BY CONCAT(s.first_name, ' ', s.last_name)");
                                     while($student = mysqli_fetch_assoc($all_students)): 
                                     ?>
                                         <option value="<?php echo $student['id']; ?>">
@@ -1044,7 +1035,7 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                 while($class = mysqli_fetch_assoc($classes)): 
                                 ?>
                                     <option value="<?php echo $class['id']; ?>">
-                                        <?php echo $class['class_name'] . ' - Section ' . $class['section']; ?>
+                                        <?php echo $class['class_name']; ?>
                                     </option>
                                 <?php endwhile; ?>
                             </select>
@@ -1058,7 +1049,7 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, s.first_name, s.last_nam
                                 while($head = mysqli_fetch_assoc($fee_heads)): 
                                 ?>
                                     <option value="<?php echo $head['id']; ?>">
-                                        <?php echo $head['fee_name']; ?>
+                                        <?php echo $head['month'] ?? ('Fee ' . $head['id']); ?>
                                     </option>
                                 <?php endwhile; ?>
                             </select>

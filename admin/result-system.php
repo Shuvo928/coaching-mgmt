@@ -10,8 +10,8 @@ checkRole(['admin', 'teacher']);
 // Get classes (Class 6 to 10 only)
 $classes = mysqli_query($conn, "SELECT * FROM classes WHERE class_name IN ('Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10') ORDER BY class_name");
 
-// Get exam types
-$exam_types = mysqli_query($conn, "SELECT * FROM exam_types ORDER BY exam_name");
+// Get exams
+$exams = mysqli_query($conn, "SELECT * FROM exams ORDER BY exam_name");
 
 // Get current term/session
 $current_year = date('Y');
@@ -492,8 +492,8 @@ $session = $current_year . '-' . ($current_year + 1);
                                     <select class="form-select" id="entry_exam" required>
                                         <option value="">Choose Exam</option>
                                         <?php 
-                                        mysqli_data_seek($exam_types, 0);
-                                        while($exam = mysqli_fetch_assoc($exam_types)): 
+                                        mysqli_data_seek($exams, 0);
+                                        while($exam = mysqli_fetch_assoc($exams)): 
                                         ?>
                                             <option value="<?php echo $exam['id']; ?>">
                                                 <?php echo $exam['exam_name']; ?>
@@ -562,8 +562,8 @@ $session = $current_year . '-' . ($current_year + 1);
                                     <select class="form-select" id="result_exam">
                                         <option value="">All Exams</option>
                                         <?php 
-                                        mysqli_data_seek($exam_types, 0);
-                                        while($exam = mysqli_fetch_assoc($exam_types)): 
+                                        mysqli_data_seek($exams, 0);
+                                        while($exam = mysqli_fetch_assoc($exams)): 
                                         ?>
                                             <option value="<?php echo $exam['id']; ?>">
                                                 <?php echo $exam['exam_name']; ?>
@@ -614,8 +614,8 @@ $session = $current_year . '-' . ($current_year + 1);
                                     <select class="form-select" id="grade_exam">
                                         <option value="">Choose Exam</option>
                                         <?php 
-                                        mysqli_data_seek($exam_types, 0);
-                                        while($exam = mysqli_fetch_assoc($exam_types)): 
+                                        mysqli_data_seek($exams, 0);
+                                        while($exam = mysqli_fetch_assoc($exams)): 
                                         ?>
                                             <option value="<?php echo $exam['id']; ?>">
                                                 <?php echo $exam['exam_name']; ?>
@@ -674,8 +674,8 @@ $session = $current_year . '-' . ($current_year + 1);
                                     <select class="form-select" id="tab_exam">
                                         <option value="">Choose Exam</option>
                                         <?php 
-                                        mysqli_data_seek($exam_types, 0);
-                                        while($exam = mysqli_fetch_assoc($exam_types)): 
+                                        mysqli_data_seek($exams, 0);
+                                        while($exam = mysqli_fetch_assoc($exams)): 
                                         ?>
                                             <option value="<?php echo $exam['id']; ?>">
                                                 <?php echo $exam['exam_name']; ?>

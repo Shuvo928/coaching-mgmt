@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+require_once '../includes/parent_helpers.php';
 
 // Check if parent is logged in
 if(!isset($_SESSION['parent_id'])) {
@@ -9,40 +10,97 @@ if(!isset($_SESSION['parent_id'])) {
 }
 
 $parent_id = $_SESSION['parent_id'];
-$student_name = $_SESSION['student_name'];
-$student_mobile = $_SESSION['student_mobile'];
+$student_name = $_SESSION['student_name'] ?? '';
+$student_mobile = $_SESSION['student_mobile'] ?? '';
 
-// Get student info to find student ID
-$student_query = "SELECT id FROM students WHERE phone = '$student_mobile' LIMIT 1";
-$student_result = mysqli_query($conn, $student_query);
-$student = mysqli_fetch_assoc($student_result);
-$student_id = $student['id'] ?? 0;
+$student_ids = getParentStudentIds($conn, $parent_id, $student_mobile);
+$student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
+
+// Check if exam_types table exists
+$examTypesTableExists = false;
+$examTypesCheck = mysqli_query($conn, "SHOW TABLES LIKE 'exam_types'");
+if ($examTypesCheck && mysqli_num_rows($examTypesCheck) > 0) {
+    $examTypesTableExists = true;
+}
+
+// Check if results table has percentage column
+$resultsPercentageExists = false;
+$resultsPercentageCheck = mysqli_query($conn, "SHOW COLUMNS FROM results LIKE 'percentage'");
+if ($resultsPercentageCheck && mysqli_num_rows($resultsPercentageCheck) > 0) {
+    $resultsPercentageExists = true;
+}
+
+// Check if results table has marks_obtained and total_marks columns
+$resultsMarksColumns = false;
+$marksObtainedCheck = mysqli_query($conn, "SHOW COLUMNS FROM results LIKE 'marks_obtained'");
+$totalMarksCheck = mysqli_query($conn, "SHOW COLUMNS FROM results LIKE 'total_marks'");
+$resultsMarksColumns = ($marksObtainedCheck && mysqli_num_rows($marksObtainedCheck) > 0) && 
+                        ($totalMarksCheck && mysqli_num_rows($totalMarksCheck) > 0);
+
+$student_id = 0;
+if (!empty($student_ids)) {
+    $student_id = (int) $student_ids[0];
+}
 
 // Get all results for this student
-$results_query = "SELECT 
-                    r.id,
-                    r.marks_obtained,
-                    r.total_marks,
-                    r.percentage,
-                    r.grade,
-                    s.subject_name,
-                    e.exam_name as exam_type
+// Build column list based on what exists
+$resultsCols = "r.id, s.subject_name";
+
+if ($resultsMarksColumns) {
+    $resultsCols .= ", r.marks_obtained, r.total_marks";
+} else {
+    $resultsCols .= ", NULL as marks_obtained, NULL as total_marks";
+}
+
+if ($resultsPercentageExists) {
+    $resultsCols .= ", r.percentage";
+} else {
+    $resultsCols .= ", NULL as percentage";
+}
+
+if ($examTypesTableExists) {
+    $resultsCols .= ", e.exam_name as exam_type";
+    $examJoin = "LEFT JOIN exam_types e ON r.exam_type_id = e.id";
+} else {
+    $resultsCols .= ", NULL as exam_type";
+    $examJoin = "";
+}
+
+$results_query = "SELECT $resultsCols
                   FROM results r
                   LEFT JOIN subjects s ON r.subject_id = s.id
-                  LEFT JOIN exam_types e ON r.exam_type_id = e.id
-                  WHERE r.student_id = $student_id
+                  $examJoin
+                  WHERE r.student_id IN ($student_ids_list)
                   ORDER BY r.id DESC";
 
 $results_result = mysqli_query($conn, $results_query);
 
 // Calculate overall statistics
-$stats_query = "SELECT 
-                    AVG(percentage) as avg_percentage,
-                    MAX(percentage) as max_percentage,
-                    MIN(percentage) as min_percentage,
-                    COUNT(*) as total_exams
-                FROM results
-                WHERE student_id = $student_id";
+if ($resultsPercentageExists) {
+    $stats_query = "SELECT 
+                        AVG(percentage) as avg_percentage,
+                        MAX(percentage) as max_percentage,
+                        MIN(percentage) as min_percentage,
+                        COUNT(*) as total_exams
+                    FROM results
+                    WHERE student_id IN ($student_ids_list)";
+} else if ($resultsMarksColumns) {
+    $stats_query = "SELECT 
+                        AVG(CASE WHEN total_marks > 0 THEN (marks_obtained / total_marks * 100) ELSE 0 END) as avg_percentage,
+                        MAX(CASE WHEN total_marks > 0 THEN (marks_obtained / total_marks * 100) ELSE 0 END) as max_percentage,
+                        MIN(CASE WHEN total_marks > 0 THEN (marks_obtained / total_marks * 100) ELSE 0 END) as min_percentage,
+                        COUNT(*) as total_exams
+                    FROM results
+                    WHERE student_id IN ($student_ids_list)";
+} else {
+    $stats_query = "SELECT 
+                        NULL as avg_percentage,
+                        NULL as max_percentage,
+                        NULL as min_percentage,
+                        COUNT(*) as total_exams
+                    FROM results
+                    WHERE student_id IN ($student_ids_list)";
+}
 
 $stats_result = mysqli_query($conn, $stats_query);
 $stats = mysqli_fetch_assoc($stats_result);
@@ -379,12 +437,7 @@ $stats = mysqli_fetch_assoc($stats_result);
                         Fees & Payments
                     </a>
                 </li>
-                <li>
-                    <a href="progress.php">
-                        <i class="fas fa-graduation-cap"></i>
-                        Progress
-                    </a>
-                </li>
+                
                 <li>
                     <a href="../parent-logout.php">
                         <i class="fas fa-sign-out-alt"></i>
@@ -446,13 +499,23 @@ $stats = mysqli_fetch_assoc($stats_result);
                         <tbody>
                             <?php
                             while($row = mysqli_fetch_assoc($results_result)) {
-                                $percentage = $row['percentage'];
-                                $grade = $row['grade'];
+                                // Calculate or get percentage
+                                if ($resultsPercentageExists) {
+                                    $percentage = floatval($row['percentage'] ?? 0);
+                                } else if ($resultsMarksColumns) {
+                                    $percentage = ($row['total_marks'] > 0) 
+                                        ? floatval($row['marks_obtained']) / floatval($row['total_marks']) * 100 
+                                        : 0;
+                                } else {
+                                    $percentage = null;
+                                }
+                                
+                                $grade = $row['grade'] ?? 'N/A';
                                 
                                 // Determine percentage badge color
-                                if($percentage >= 80) {
+                                if($percentage !== null && $percentage >= 80) {
                                     $pct_class = 'high';
-                                } elseif($percentage >= 60) {
+                                } elseif($percentage !== null && $percentage >= 60) {
                                     $pct_class = 'medium';
                                 } else {
                                     $pct_class = 'low';
@@ -464,11 +527,19 @@ $stats = mysqli_fetch_assoc($stats_result);
                             <tr>
                                 <td><span class="subject-name"><?php echo htmlspecialchars($row['subject_name'] ?? 'N/A'); ?></span></td>
                                 <td><span class="exam-type"><?php echo htmlspecialchars($row['exam_type'] ?? 'Regular'); ?></span></td>
-                                <td><?php echo date('d M, Y', strtotime($row['exam_date'])); ?></td>
-                                <td class="marks-badge"><?php echo $row['marks_obtained'] . "/" . $row['total_marks']; ?></td>
+                                <td><?php echo isset($row['exam_date']) ? date('d M, Y', strtotime($row['exam_date'])) : 'N/A'; ?></td>
+                                <td class="marks-badge">
+                                    <?php 
+                                        if ($resultsMarksColumns && isset($row['marks_obtained']) && isset($row['total_marks'])) {
+                                            echo htmlspecialchars($row['marks_obtained'] . "/" . $row['total_marks']);
+                                        } else {
+                                            echo 'N/A';
+                                        }
+                                    ?>
+                                </td>
                                 <td>
                                     <span class="percentage-badge <?php echo $pct_class; ?>">
-                                        <?php echo number_format($percentage, 2); ?>%
+                                        <?php echo $percentage !== null ? number_format($percentage, 2) : 'N/A'; ?>%
                                     </span>
                                 </td>
                                 <td>

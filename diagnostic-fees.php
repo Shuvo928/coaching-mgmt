@@ -5,6 +5,11 @@
 
 require_once 'includes/db.php';
 
+// Check what phone column name exists in admission_applications
+$admissionPhoneColumn = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'mobile'");
+$admissionHasMobile = ($admissionPhoneColumn && mysqli_num_rows($admissionPhoneColumn) > 0);
+$admissionPhoneField = $admissionHasMobile ? 'mobile' : 'phone';
+
 ?>
 <!DOCTYPE html>
 <html>
@@ -33,9 +38,9 @@ require_once 'includes/db.php';
         echo "<h3>1. Students & Admissions Data</h3>";
         $students_query = "SELECT 
                             s.id, s.student_id, s.first_name, s.last_name, s.phone,
-                            aa.id as admission_id, aa.mobile, aa.monthly_fee, aa.status
+                            aa.id as admission_id, aa.$admissionPhoneField, aa.monthly_fee, aa.status
                           FROM students s
-                          LEFT JOIN admission_applications aa ON s.phone = aa.mobile
+                          LEFT JOIN admission_applications aa ON s.phone = aa.$admissionPhoneField
                           LIMIT 5";
         $students_result = mysqli_query($conn, $students_query);
         
@@ -47,7 +52,7 @@ require_once 'includes/db.php';
                 echo "<td>" . htmlspecialchars($row['student_id']) . "</td>";
                 echo "<td>" . htmlspecialchars($row['first_name'] . " " . $row['last_name']) . "</td>";
                 echo "<td>" . htmlspecialchars($row['phone']) . "</td>";
-                echo "<td>" . htmlspecialchars($row['mobile'] ?? 'NULL') . "</td>";
+                echo "<td>" . htmlspecialchars($row[$admissionPhoneField] ?? 'NULL') . "</td>";
                 echo "<td>৳" . ($row['monthly_fee'] ?? 'NULL') . "</td>";
                 echo "<td>" . htmlspecialchars($row['status'] ?? 'NULL') . "</td>";
                 echo "</tr>";
@@ -110,7 +115,7 @@ require_once 'includes/db.php';
         
         // Count matched records
         $match_query = "SELECT COUNT(*) as cnt FROM students s 
-                       INNER JOIN admission_applications aa ON s.phone = aa.mobile
+                       INNER JOIN admission_applications aa ON s.phone = aa.$admissionPhoneField
                        WHERE aa.status = 'Approved'";
         $match_result = mysqli_query($conn, $match_query);
         $match_data = mysqli_fetch_assoc($match_result);

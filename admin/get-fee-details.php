@@ -4,8 +4,12 @@ require_once '../includes/db.php';
 if(isset($_POST['id'])) {
     $collection_id = $_POST['id'];
     
+    // Check if classes table has section column
+    $sectionColumn = mysqli_query($conn, "SHOW COLUMNS FROM classes LIKE 'section'");
+    $sectionSelect = ($sectionColumn && mysqli_num_rows($sectionColumn) > 0) ? 'c.section' : "'' AS section";
+    
     $query = "SELECT fc.*, s.first_name, s.last_name, s.student_id, s.father_name,
-                     c.class_name, c.section, fh.fee_name
+                     c.class_name, $sectionSelect, fh.fee_name
               FROM fee_collections fc
               JOIN students s ON fc.student_id = s.id
               JOIN classes c ON s.class_id = c.id

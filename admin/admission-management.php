@@ -49,14 +49,164 @@ function ensureAdmissionFeeRecordedColumn($conn) {
     }
 }
 
+function ensureAdmissionCredentialColumns($conn) {
+    $checkUsername = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'username'");
+    if ($checkUsername && mysqli_num_rows($checkUsername) === 0) {
+        mysqli_query($conn, "ALTER TABLE admission_applications ADD COLUMN username VARCHAR(100) NULL AFTER parent_phone");
+    }
+    $checkPassword = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'password_hash'");
+    if ($checkPassword && mysqli_num_rows($checkPassword) === 0) {
+        mysqli_query($conn, "ALTER TABLE admission_applications ADD COLUMN password_hash VARCHAR(255) NULL AFTER username");
+    }
+}
+
+ensureAdmissionFeeRecordedColumn($conn);
+ensureAdmissionCredentialColumns($conn);
+
+function admissionColumnExists($conn, $column) {
+    $result = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE '$column'");
+    return $result && mysqli_num_rows($result) > 0;
+}
+
+function getAdmissionColumnMap($conn) {
+    $hasFullName = admissionColumnExists($conn, 'full_name');
+    $hasFirstName = admissionColumnExists($conn, 'first_name');
+    $hasLastName = admissionColumnExists($conn, 'last_name');
+    $hasMobile = admissionColumnExists($conn, 'mobile');
+    $hasPhone = admissionColumnExists($conn, 'phone');
+
+    $nameField = $hasFullName
+        ? 'full_name'
+        : ($hasFirstName && $hasLastName ? "CONCAT(first_name, ' ', last_name)" : "''");
+    $phoneField = $hasMobile ? 'mobile' : ($hasPhone ? 'phone' : "''");
+
+    return [
+        'hasFullName' => $hasFullName,
+        'hasFirstName' => $hasFirstName,
+        'hasLastName' => $hasLastName,
+        'hasMobile' => $hasMobile,
+        'hasPhone' => $hasPhone,
+        'nameField' => $nameField,
+        'phoneField' => $phoneField,
+    ];
+}
+
+$admissionColumns = getAdmissionColumnMap($conn);
+
+function generateStudentID($conn) {
+    $prefix = 'STU';
+    $year = date('Y');
+    $pattern = $prefix . $year . '%';
+
+    $query = "SELECT student_id FROM students WHERE student_id LIKE '$pattern' ORDER BY student_id DESC LIMIT 1";
+    $result = mysqli_query($conn, $query);
+
+    if($result && mysqli_num_rows($result) > 0) {
+        $row = mysqli_fetch_assoc($result);
+        $lastId = $row['student_id'];
+        $lastNumber = intval(substr($lastId, strlen($prefix . $year)));
+        $count = $lastNumber + 1;
+    } else {
+        $count = 1;
+    }
+
+    do {
+        $newId = $prefix . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+        $checkQuery = "SELECT id FROM students WHERE student_id = '$newId' LIMIT 1";
+        $checkResult = mysqli_query($conn, $checkQuery);
+        $count++;
+    } while($checkResult && mysqli_num_rows($checkResult) > 0);
+
+    return $newId;
+}
+
+function createStudentUserFromAdmission($conn, $app) {
+    if(empty($app['username']) || empty($app['password_hash'])) {
+        return false;
+    }
+
+    $username = mysqli_real_escape_string($conn, $app['username']);
+    $email = mysqli_real_escape_string($conn, $app['email']);
+    $password_hash = mysqli_real_escape_string($conn, $app['password_hash']);
+    $mobile = mysqli_real_escape_string($conn, $app['mobile']);
+    $gender = mysqli_real_escape_string($conn, $app['gender']);
+    $address = mysqli_real_escape_string($conn, $app['address']);
+    $full_name = trim($app['full_name']);
+    $nameParts = explode(' ', $full_name);
+    $first_name = mysqli_real_escape_string($conn, array_shift($nameParts));
+    $last_name = mysqli_real_escape_string($conn, trim(implode(' ', $nameParts)));
+
+    if(empty($last_name)) {
+        $last_name = '';
+    }
+
+    // Skip if the student user already exists
+    $check_user = mysqli_query($conn, "SELECT id FROM users WHERE username = '$username' LIMIT 1");
+    if($check_user && mysqli_num_rows($check_user) > 0) {
+        return true;
+    }
+
+    $user_query = "INSERT INTO users (username, password, email, role, status) VALUES ('$username', '$password_hash', '$email', 'student', 1)";
+    if(!mysqli_query($conn, $user_query)) {
+        return false;
+    }
+
+    $user_id = mysqli_insert_id($conn);
+    $student_unique_id = generateStudentID($conn);
+
+    $insert_student = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, photo, class_id, admission_date, status) 
+                      VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', '', '', '$email', '$mobile', NULL, '$gender', '$address', NULL, NULL, NOW(), 1)";
+
+    if(!mysqli_query($conn, $insert_student)) {
+        // Roll back created user if student record fails
+        mysqli_query($conn, "DELETE FROM users WHERE id = $user_id");
+        return false;
+    }
+
+    return true;
+}
+
 // Handle approval
 if(isset($_POST['approve'])) {
     $id = mysqli_real_escape_string($conn, $_POST['id']);
-    $query = "UPDATE admission_applications SET status = 'Approved' WHERE id = $id";
-    if(mysqli_query($conn, $query)) {
-        $_SESSION['success'] = "Application approved successfully.";
+
+    // Get application details
+    $nameField = $admissionColumns['hasFullName'] ? 'full_name' : "CONCAT(first_name, ' ', last_name)";
+    $phoneField = $admissionColumns['hasMobile'] ? 'mobile' : ($admissionColumns['hasPhone'] ? 'phone' : "''");
+    $app_query = "SELECT $nameField AS full_name, email, $phoneField AS mobile, parent_name, parent_email, parent_phone, username, password_hash, gender, address FROM admission_applications WHERE id = $id";
+    $app_result = mysqli_query($conn, $app_query);
+    $app = mysqli_fetch_assoc($app_result);
+
+    if($app) {
+        $query = "UPDATE admission_applications SET status = 'Approved' WHERE id = $id";
+        if(mysqli_query($conn, $query)) {
+            if(!empty($app['username']) && !empty($app['password_hash'])) {
+                createStudentUserFromAdmission($conn, $app);
+            }
+
+            // Send approval SMS to student
+            $student_message = "Dear " . $app['full_name'] . ",\n\nYour admission application has been approved. Welcome to CoachingPro!\n\nThank you.\nCoachingPro Admin";
+            sendSMS($app['mobile'], $student_message);
+
+            // Send approval SMS to parent
+            $parent_message = "Dear " . $app['parent_name'] . ",\n\nWe are pleased to inform you that your ward's admission application has been approved.\n\nThank you.\nCoachingPro Admin";
+            sendSMS($app['parent_phone'], $parent_message);
+
+            // Send approval email to student
+            $approval_subject = 'Admission Application Approved';
+            $approval_body_student = "Dear " . $app['full_name'] . ",\n\nYour admission application has been approved. Your login username and password will be assigned by the administration. Please contact the office to receive your credentials.\n\nThank you.\nCoachingPro Administration";
+            sendEmail($app['email'], $approval_subject, $approval_body_student);
+
+            // Send approval email to parent
+            $approval_body_parent = "Dear " . $app['parent_name'] . ",\n\nWe are pleased to inform you that your ward's admission application has been approved. Login credentials will be provided by the administration. Please contact the office for next steps.\n\nThank you.\nCoachingPro Administration";
+            sendEmail($app['parent_email'], $approval_subject, $approval_body_parent);
+
+            $_SESSION['success'] = "Application approved successfully. Notifications sent to student and parent.";
+        } else {
+            $_SESSION['error'] = "Failed to approve application. Please try again.";
+        }
     } else {
-        $_SESSION['error'] = "Failed to approve application. Please try again.";
+        $_SESSION['error'] = "Application not found.";
     }
 }
 
@@ -65,10 +215,12 @@ if(isset($_POST['reject'])) {
     $id = mysqli_real_escape_string($conn, $_POST['id']);
     
     // Get application details
-    $app_query = "SELECT full_name, email, mobile, parent_name, parent_email, parent_phone FROM admission_applications WHERE id = $id";
+    $nameField = $admissionColumns['hasFullName'] ? 'full_name' : "CONCAT(first_name, ' ', last_name)";
+    $phoneField = $admissionColumns['hasMobile'] ? 'mobile' : ($admissionColumns['hasPhone'] ? 'phone' : "''");
+    $app_query = "SELECT $nameField AS full_name, email, $phoneField AS mobile, parent_name, parent_email, parent_phone FROM admission_applications WHERE id = $id";
     $app_result = mysqli_query($conn, $app_query);
     $app = mysqli_fetch_assoc($app_result);
-    
+
     if($app) {
         // Update status
         $query = "UPDATE admission_applications SET status = 'Rejected' WHERE id = $id";
@@ -113,22 +265,37 @@ if(isset($_POST['edit_admission'])) {
     $transaction_id = mysqli_real_escape_string($conn, $_POST['transaction_id']);
     $sender_number = mysqli_real_escape_string($conn, $_POST['sender_number']);
 
-    $update_query = "UPDATE admission_applications SET 
-        full_name = '$full_name',
-        gender = '$gender',
-        mobile = '$mobile',
-        email = '$email',
-        address = '$address',
-        parent_name = '$parent_name',
-        parent_email = '$parent_email',
-        parent_phone = '$parent_phone',
-        program = '$program',
-        `group` = '$group',
-        monthly_fee = $monthly_fee,
-        payment_method = '$payment_method',
-        transaction_id = '$transaction_id',
-        sender_number = '$sender_number'
-        WHERE id = $id";
+    $setClauses = [];
+    if($admissionColumns['hasFullName']) {
+        $setClauses[] = "full_name = '$full_name'";
+    } elseif($admissionColumns['hasFirstName'] && $admissionColumns['hasLastName']) {
+        $nameParts = explode(' ', $full_name);
+        $firstNameValue = mysqli_real_escape_string($conn, array_shift($nameParts));
+        $lastNameValue = mysqli_real_escape_string($conn, trim(implode(' ', $nameParts)));
+        $setClauses[] = "first_name = '$firstNameValue'";
+        $setClauses[] = "last_name = '$lastNameValue'";
+    }
+
+    if($admissionColumns['hasMobile']) {
+        $setClauses[] = "mobile = '$mobile'";
+    } elseif($admissionColumns['hasPhone']) {
+        $setClauses[] = "phone = '$mobile'";
+    }
+
+    $setClauses[] = "gender = '$gender'";
+    $setClauses[] = "email = '$email'";
+    $setClauses[] = "address = '$address'";
+    $setClauses[] = "parent_name = '$parent_name'";
+    $setClauses[] = "parent_email = '$parent_email'";
+    $setClauses[] = "parent_phone = '$parent_phone'";
+    $setClauses[] = "program = '$program'";
+    $setClauses[] = "`group` = '$group'";
+    $setClauses[] = "monthly_fee = $monthly_fee";
+    $setClauses[] = "payment_method = '$payment_method'";
+    $setClauses[] = "transaction_id = '$transaction_id'";
+    $setClauses[] = "sender_number = '$sender_number'";
+
+    $update_query = "UPDATE admission_applications SET " . implode(", ", $setClauses) . " WHERE id = $id";
 
     if(mysqli_query($conn, $update_query)) {
         $_SESSION['success'] = "Application updated successfully.";
@@ -150,16 +317,48 @@ if(isset($_POST['delete'])) {
 $filter_status = isset($_GET['status']) ? $_GET['status'] : 'all';
 $search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
 
+$nameSelect = $admissionColumns['hasFullName']
+    ? 'full_name'
+    : ($admissionColumns['hasFirstName'] && $admissionColumns['hasLastName'] ? "CONCAT(first_name, ' ', last_name) AS full_name" : "'' AS full_name");
+$phoneSelect = $admissionColumns['hasMobile']
+    ? 'mobile AS phone, mobile AS mobile'
+    : ($admissionColumns['hasPhone'] ? 'phone AS phone, phone AS mobile' : "'' AS phone, '' AS mobile");
+
 // Build query
 $where = "1=1";
 if($filter_status != 'all') {
     $where .= " AND status = '$filter_status'";
 }
 if($search) {
-    $where .= " AND (full_name LIKE '%$search%' OR email LIKE '%$search%' OR mobile LIKE '%$search%' OR parent_name LIKE '%$search%')";
+    $nameSearchField = $admissionColumns['hasFullName']
+        ? 'full_name'
+        : ($admissionColumns['hasFirstName'] && $admissionColumns['hasLastName'] ? "CONCAT(first_name, ' ', last_name)" : "''");
+    $phoneSearchField = $admissionColumns['hasMobile'] ? 'mobile' : ($admissionColumns['hasPhone'] ? 'phone' : "''");
+
+    $where .= " AND ((" . $nameSearchField . " LIKE '%$search%') OR email LIKE '%$search%' OR " . $phoneSearchField . " LIKE '%$search%' OR parent_name LIKE '%$search%' OR `group` LIKE '%$search%')";
 }
 
-$query = "SELECT * FROM admission_applications WHERE $where ORDER BY created_at DESC";
+$query = "SELECT *,
+                 $nameSelect,
+                 $phoneSelect,
+                 CASE
+                     WHEN TRIM(COALESCE(program, '')) <> '' THEN program
+                     ELSE 'Unknown'
+                 END AS program,
+                 `group` AS `group`,
+                 CONCAT(
+                     CASE
+                         WHEN TRIM(COALESCE(program, '')) <> '' THEN program
+                         ELSE 'Unknown'
+                     END,
+                     CASE WHEN TRIM(COALESCE(`group`, '')) <> '' THEN CONCAT(' - ', `group`) ELSE '' END
+                 ) AS program_with_group,
+                 COALESCE(monthly_fee, 0) AS monthly_fee,
+                 transaction_id,
+                 sender_number
+          FROM admission_applications
+          WHERE $where
+          ORDER BY created_at DESC";
 $result = mysqli_query($conn, $query);
 $applications = mysqli_fetch_all($result, MYSQLI_ASSOC);
 
@@ -567,11 +766,11 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                 <tr>
                                     <td><?php echo $index + 1; ?></td>
                                     <td><strong><?php echo htmlspecialchars($app['full_name']); ?></strong></td>
-                                    <td><?php echo htmlspecialchars($app['mobile']); ?></td>
+                                    <td><?php echo htmlspecialchars($app['phone']); ?></td>
                                     <td><?php echo htmlspecialchars($app['email']); ?></td>
-                                    <td><?php echo htmlspecialchars($app['program']); ?></td>
+                                    <td><?php echo htmlspecialchars($app['program_with_group']); ?></td>
                                     <td><?php echo htmlspecialchars($app['group']); ?></td>
-                                    <td>৳<?php echo number_format($app['monthly_fee'], 2); ?></td>
+                                    <td>৳<?php echo number_format((float)($app['monthly_fee'] ?? 0), 2); ?></td>
                                     <td><?php echo htmlspecialchars($app['transaction_id'] ?? 'N/A'); ?></td>
                                     <td><?php echo htmlspecialchars($app['parent_name']); ?></td>
                                     <td><small><?php echo htmlspecialchars($app['parent_email']); ?></small></td>
@@ -592,7 +791,7 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                                     data-bs-target="#viewModal<?php echo $app['id']; ?>" title="View">
                                                 <i class="fas fa-eye"></i>
                                             </button>
-                                            <?php if($app['status'] == 'Pending'): ?>
+                                            <?php if(strtolower($app['status']) === 'pending'): ?>
                                                 <form method="POST" style="display: inline;">
                                                     <input type="hidden" name="id" value="<?php echo $app['id']; ?>">
                                                     <button type="submit" name="approve" class="btn btn-success" 
@@ -648,9 +847,9 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                                 <div class="row">
                                                     <div class="col-md-6">
                                                         <h6 class="text-muted">Program Details</h6>
-                                                        <p><strong>Program:</strong> <?php echo htmlspecialchars($app['program']); ?></p>
+                                                        <p><strong>Program:</strong> <?php echo htmlspecialchars($app['program_with_group']); ?></p>
                                                         <p><strong>Group:</strong> <?php echo htmlspecialchars($app['group']); ?></p>
-                                                        <p><strong>Monthly Fee:</strong> ৳<?php echo number_format($app['monthly_fee'], 2); ?></p>
+                                                        <p><strong>Monthly Fee:</strong> ৳<?php echo number_format((float)($app['monthly_fee'] ?? 0), 2); ?></p>
                                                     </div>
                                                     <div class="col-md-6">
                                                         <h6 class="text-muted">Payment Details</h6>

@@ -30,6 +30,10 @@ function generateStudentID($conn) {
     return $newId;
 }
 
+// Check if classes table has section column
+$classesSectionColumn = mysqli_query($conn, "SHOW COLUMNS FROM classes LIKE 'section'");
+$classesHasSection = ($classesSectionColumn && mysqli_num_rows($classesSectionColumn) > 0);
+
 function redirectWithError($message) {
     $_SESSION['error'] = $message;
     header("Location: student-management.php");
@@ -42,7 +46,6 @@ if(isset($_POST['submit'])) {
     $last_name = mysqli_real_escape_string($conn, $_POST['last_name']);
     $father_name = mysqli_real_escape_string($conn, $_POST['father_name']);
     $mother_name = mysqli_real_escape_string($conn, $_POST['mother_name']);
-    $email = mysqli_real_escape_string($conn, $_POST['parent_email']);
     $phone = mysqli_real_escape_string($conn, $_POST['phone']);
     $dob = $_POST['dob'];
     $gender = $_POST['gender'] ?: null;
@@ -51,45 +54,24 @@ if(isset($_POST['submit'])) {
     $address = mysqli_real_escape_string($conn, $_POST['address']);
     $username = mysqli_real_escape_string($conn, $_POST['username']);
     $password = $_POST['password'];
-    $parent_email_verified = isset($_POST['parent_email_verified']) ? $_POST['parent_email_verified'] : '0';
 
     // Validation
-    if(empty($first_name) || empty($last_name) || empty($email) || empty($phone) || empty($username) || empty($class_label)) {
+    if(empty($first_name) || empty($last_name) || empty($phone) || empty($username) || empty($class_label)) {
         redirectWithError('Please fill in all required student fields.');
-    }
-
-    if(empty($student_id)) {
-        if($parent_email_verified !== '1' || !isset($_SESSION['parent_email_verified']) || $_SESSION['parent_email_verified'] !== 1 || !isset($_SESSION['parent_email_to_verify']) || $_SESSION['parent_email_to_verify'] !== $email) {
-            redirectWithError('Please verify the parent email with OTP before adding a new student.');
-        }
     }
 
     if(empty($student_id) && empty($password)) {
         redirectWithError('Password is required when adding a new student.');
     }
 
-    if(!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        redirectWithError('Please enter a valid email address.');
-    }
-
-    // Ensure unique username/email for the account
-    $existingUserQuery = "SELECT id FROM users WHERE (username = '$username' OR email = '$email')";
+    // Ensure unique username for the account
+    $existingUserQuery = "SELECT id FROM users WHERE username = '$username'";
     if(!empty($student_id)) {
         $existingUserQuery .= " AND id <> (SELECT user_id FROM students WHERE id = $student_id)";
     }
     $existingUserResult = mysqli_query($conn, $existingUserQuery);
     if(mysqli_num_rows($existingUserResult) > 0) {
-        redirectWithError('The username or email is already in use. Please choose a different username/email.');
-    }
-
-    // Ensure unique student email if provided
-    $existingStudentQuery = "SELECT id FROM students WHERE email = '$email'";
-    if(!empty($student_id)) {
-        $existingStudentQuery .= " AND id <> $student_id";
-    }
-    $existingStudentResult = mysqli_query($conn, $existingStudentQuery);
-    if(mysqli_num_rows($existingStudentResult) > 0) {
-        redirectWithError('A student with this email already exists.');
+        redirectWithError('The username is already in use. Please choose a different username.');
     }
 
     // Handle photo upload
@@ -121,8 +103,8 @@ if(isset($_POST['submit'])) {
         try {
             // Insert into users table
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-            $user_query = "INSERT INTO users (username, password, email, role, status) 
-                          VALUES ('$username', '$hashed_password', '$email', 'student', 1)";
+            $user_query = "INSERT INTO users (username, password, role, status) 
+                          VALUES ('$username', '$hashed_password', 'student', 1)";
 
             if(!mysqli_query($conn, $user_query)) {
                 throw new Exception('Error creating user account: ' . mysqli_error($conn));
@@ -137,13 +119,25 @@ if(isset($_POST['submit'])) {
                 $parts = explode('-', $class_label_value, 2);
                 $class_name = trim($parts[0]);
                 $class_section = isset($parts[1]) ? trim($parts[1]) : '';
-                $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' AND section = '$class_section' LIMIT 1";
+                
+                // Build dynamic query based on whether section column exists
+                if($classesHasSection && !empty($class_section)) {
+                    $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' AND section = '$class_section' LIMIT 1";
+                } else {
+                    $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' LIMIT 1";
+                }
+                
                 $class_result = mysqli_query($conn, $class_query);
                 if($class_result && mysqli_num_rows($class_result) > 0) {
                     $class_row = mysqli_fetch_assoc($class_result);
                     $class_id = $class_row['id'];
                 } else {
-                    $insert_class = "INSERT INTO classes (class_name, section) VALUES ('$class_name', '$class_section')";
+                    // Insert new class
+                    if($classesHasSection) {
+                        $insert_class = "INSERT INTO classes (class_name, section) VALUES ('$class_name', '$class_section')";
+                    } else {
+                        $insert_class = "INSERT INTO classes (class_name) VALUES ('$class_name')";
+                    }
                     if(mysqli_query($conn, $insert_class)) {
                         $class_id = mysqli_insert_id($conn);
                     }
@@ -163,10 +157,10 @@ if(isset($_POST['submit'])) {
             while($attempts < $maxAttempts) {
                 $student_unique_id = generateStudentID($conn);
                 $student_query = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, 
-                                  mother_name, email, phone, dob, gender, address, photo, class_id, 
+                                  mother_name, phone, dob, gender, address, photo, class_id, 
                                   admission_date, status) 
                                   VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', 
-                                  '$father_name', '$mother_name', '$email', '$phone', $dob_sql, $gender_sql, 
+                                  '$father_name', '$mother_name', '$phone', $dob_sql, $gender_sql, 
                                   '$address', $photo_sql, $class_id_sql, $admission_date_sql, 1)";
 
                 if(mysqli_query($conn, $student_query)) {
@@ -187,7 +181,6 @@ if(isset($_POST['submit'])) {
             }
 
             mysqli_commit($conn);
-            unset($_SESSION['parent_email_otp'], $_SESSION['parent_email_to_verify'], $_SESSION['parent_email_otp_time'], $_SESSION['parent_email_verified']);
             $_SESSION['success'] = 'Student added successfully! Student ID: ' . $student_unique_id;
 
         } catch(Exception $e) {
@@ -225,13 +218,25 @@ if(isset($_POST['submit'])) {
             $parts = explode('-', $class_label_value, 2);
             $class_name = trim($parts[0]);
             $class_section = isset($parts[1]) ? trim($parts[1]) : '';
-            $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' AND section = '$class_section' LIMIT 1";
+            
+            // Build dynamic query based on whether section column exists
+            if($classesHasSection && !empty($class_section)) {
+                $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' AND section = '$class_section' LIMIT 1";
+            } else {
+                $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' LIMIT 1";
+            }
+            
             $class_result = mysqli_query($conn, $class_query);
             if($class_result && mysqli_num_rows($class_result) > 0) {
                 $class_row = mysqli_fetch_assoc($class_result);
                 $class_id = $class_row['id'];
             } else {
-                $insert_class = "INSERT INTO classes (class_name, section) VALUES ('$class_name', '$class_section')";
+                // Insert new class
+                if($classesHasSection) {
+                    $insert_class = "INSERT INTO classes (class_name, section) VALUES ('$class_name', '$class_section')";
+                } else {
+                    $insert_class = "INSERT INTO classes (class_name) VALUES ('$class_name')";
+                }
                 if(mysqli_query($conn, $insert_class)) {
                     $class_id = mysqli_insert_id($conn);
                 }
@@ -244,7 +249,6 @@ if(isset($_POST['submit'])) {
                          last_name = '$last_name',
                          father_name = '$father_name',
                          mother_name = '$mother_name',
-                         email = '$email',
                          phone = '$phone',
                          dob = $dob_sql,
                          gender = $gender_sql,
@@ -256,7 +260,7 @@ if(isset($_POST['submit'])) {
         
         if(mysqli_query($conn, $update_query)) {
             // Update username in users table
-            mysqli_query($conn, "UPDATE users SET username = '$username', email = '$email' 
+            mysqli_query($conn, "UPDATE users SET username = '$username' 
                                  WHERE id = (SELECT user_id FROM students WHERE id = $student_id)");
             
             // Update password if provided

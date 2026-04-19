@@ -539,7 +539,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <th>ID</th>
                                 <th>Photo</th>
                                 <th>Name</th>
-                                <th>Student ID</th>
+                                <th>Class ID</th>
                                 <th>Class</th>
                                 <th>Group</th>
                                 <th>Phone</th>
@@ -564,7 +564,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
-                                <td><span class="badge bg-light text-dark"><?php echo $row['student_id']; ?></span></td>
+                                <td><span class="badge bg-light text-dark"><?php echo $row['class_id'] ?? 'N/A'; ?></span></td>
                                 <td><?php echo $row['class_name'] ? htmlspecialchars($row['class_name'] . (!empty($row['group_name']) ? ' - ' . $row['group_name'] : '')) : 'N/A'; ?></td>
                                 <td><?php echo !empty($row['group_name']) ? ucwords(strtolower($row['group_name'])) : 'N/A'; ?></td>
                                 <td><?php echo $row['phone'] ?? 'N/A'; ?></td>
@@ -663,35 +663,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <input type="date" class="form-control" name="admission_date" id="admission_date">
                             </div>
                         </div>
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Parent Email *</label>
-                                <input type="email" class="form-control" name="parent_email" id="parent_email" required autocomplete="email">
-                                <small class="text-muted">A verification OTP will be sent to this email.</small>
-                            </div>
-                            <div class="col-md-6 mb-3 d-flex align-items-end">
-                                <button type="button" id="sendOtpBtn" class="btn btn-outline-primary w-100">Send OTP</button>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Email OTP</label>
-                                <input type="text" class="form-control" name="parent_email_otp" id="parent_email_otp" placeholder="Enter OTP">
-                            </div>
-                            <div class="col-md-6 mb-3 d-flex align-items-end">
-                                <button type="button" id="verifyOtpBtn" class="btn btn-outline-success w-100">Verify OTP</button>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-12 mb-3">
-                                <div id="otpFeedback" class="small text-muted">Please verify the parent email before saving.</div>
-                            </div>
-                        </div>
-
-                        <input type="hidden" name="parent_email_verified" id="parent_email_verified" value="0">
 
                         <div class="mb-3">
                             <label class="form-label">Address</label>
@@ -797,10 +768,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
             document.getElementById('modalTitle').innerHTML = '<i class="fas fa-plus me-2"></i>Add New Student';
             document.getElementById('password').required = true;
             document.getElementById('photo_preview').innerHTML = '';
-            document.getElementById('parent_email').value = '';
-            document.getElementById('parent_email_otp').value = '';
-            document.getElementById('parent_email_verified').value = '0';
-            document.getElementById('otpFeedback').innerHTML = 'Please verify the parent email before saving.';
             new bootstrap.Modal(document.getElementById('studentModal')).show();
         }
 
@@ -816,16 +783,12 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     document.getElementById('last_name').value = data.last_name;
                     document.getElementById('father_name').value = data.father_name;
                     document.getElementById('mother_name').value = data.mother_name;
-                    document.getElementById('parent_email').value = data.email;
                     document.getElementById('phone').value = data.phone;
                     document.getElementById('dob').value = data.dob;
                     document.getElementById('gender').value = data.gender;
                     document.getElementById('class_label').value = data.class_label || '';
                     document.getElementById('admission_date').value = data.admission_date;
                     document.getElementById('address').value = data.address;
-                    document.getElementById('parent_email_otp').value = '';
-                    document.getElementById('parent_email_verified').value = '0';
-                    document.getElementById('otpFeedback').innerHTML = 'Please verify the parent email before saving.';
                     document.getElementById('username').value = data.username;
                     document.getElementById('password').required = false;
                     document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Student';
@@ -839,65 +802,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                 }
             });
         }
-
-        document.getElementById('parent_email').addEventListener('input', function() {
-            document.getElementById('parent_email_verified').value = '0';
-            document.getElementById('otpFeedback').innerHTML = 'Please verify the parent email before saving.';
-        });
-
-        document.getElementById('sendOtpBtn').addEventListener('click', function() {
-            var email = document.getElementById('parent_email').value.trim();
-            if(!email) {
-                document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">Enter a parent email first.</span>';
-                return;
-            }
-
-            $.ajax({
-                url: 'send-parent-email-otp.php',
-                type: 'POST',
-                data: {email: email},
-                dataType: 'json',
-                success: function(response) {
-                    if(response.success) {
-                        document.getElementById('otpFeedback').innerHTML = '<span class="text-success">' + response.message + '</span>';
-                        document.getElementById('parent_email_verified').value = '0';
-                    } else {
-                        document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">' + response.message + '</span>';
-                    }
-                },
-                error: function() {
-                    document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">Unable to send OTP. Try again.</span>';
-                }
-            });
-        });
-
-        document.getElementById('verifyOtpBtn').addEventListener('click', function() {
-            var email = document.getElementById('parent_email').value.trim();
-            var otp = document.getElementById('parent_email_otp').value.trim();
-            if(!email || !otp) {
-                document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">Enter both parent email and OTP.</span>';
-                return;
-            }
-
-            $.ajax({
-                url: 'verify-parent-email-otp.php',
-                type: 'POST',
-                data: {email: email, otp: otp},
-                dataType: 'json',
-                success: function(response) {
-                    if(response.success) {
-                        document.getElementById('parent_email_verified').value = '1';
-                        document.getElementById('otpFeedback').innerHTML = '<span class="text-success">' + response.message + '</span>';
-                    } else {
-                        document.getElementById('parent_email_verified').value = '0';
-                        document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">' + response.message + '</span>';
-                    }
-                },
-                error: function() {
-                    document.getElementById('otpFeedback').innerHTML = '<span class="text-danger">Unable to verify OTP. Try again.</span>';
-                }
-            });
-        });
 
         // Photo Preview
         document.getElementById('photo').addEventListener('change', function(e) {

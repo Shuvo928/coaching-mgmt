@@ -19,6 +19,8 @@ $sql = "CREATE TABLE IF NOT EXISTS admission_applications (
     parent_name VARCHAR(100) NOT NULL,
     parent_email VARCHAR(100) NOT NULL,
     parent_phone VARCHAR(15) NOT NULL,
+    username VARCHAR(100) NULL,
+    password_hash VARCHAR(255) NULL,
     monthly_fee DECIMAL(10,2),
     transaction_id VARCHAR(100),
     payment_method VARCHAR(50),

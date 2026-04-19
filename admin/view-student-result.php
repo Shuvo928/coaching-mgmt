@@ -5,6 +5,13 @@ if(isset($_POST['student_id'])) {
     $student_id = $_POST['student_id'];
     $exam_id = $_POST['exam_id'] ?? '';
     
+    // Check if exam_types table exists
+    $examTypesTableExists = false;
+    $examTypesCheck = mysqli_query($conn, "SHOW TABLES LIKE 'exam_types'");
+    if ($examTypesCheck && mysqli_num_rows($examTypesCheck) > 0) {
+        $examTypesTableExists = true;
+    }
+    
     // Get student details
     $student_query = "SELECT s.*, c.class_name 
                       FROM students s 
@@ -15,12 +22,21 @@ if(isset($_POST['student_id'])) {
     
     // Get results
     $exam_filter = $exam_id ? "AND r.exam_type_id = $exam_id" : "";
-    $results_query = "SELECT r.*, s.subject_name, s.subject_code, et.exam_name
-                      FROM results r
-                      JOIN subjects s ON r.subject_id = s.id
-                      JOIN exam_types et ON r.exam_type_id = et.id
-                      WHERE r.student_id = $student_id $exam_filter
-                      ORDER BY et.exam_name, s.subject_name";
+    
+    if ($examTypesTableExists) {
+        $results_query = "SELECT r.*, s.subject_name, s.subject_code, et.exam_name
+                          FROM results r
+                          JOIN subjects s ON r.subject_id = s.id
+                          JOIN exam_types et ON r.exam_type_id = et.id
+                          WHERE r.student_id = $student_id $exam_filter
+                          ORDER BY et.exam_name, s.subject_name";
+    } else {
+        $results_query = "SELECT r.*, s.subject_name, s.subject_code, NULL AS exam_name
+                          FROM results r
+                          JOIN subjects s ON r.subject_id = s.id
+                          WHERE r.student_id = $student_id $exam_filter
+                          ORDER BY s.subject_name";
+    }
     $results = mysqli_query($conn, $results_query);
     
     if(mysqli_num_rows($results) > 0) {

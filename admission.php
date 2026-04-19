@@ -2,22 +2,29 @@
 session_start();
 require_once 'includes/db.php';
 
-function ensureSenderNumberColumn($conn) {
-    $check = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'sender_number'");
-    if($check && mysqli_num_rows($check) === 0) {
-        mysqli_query($conn, "ALTER TABLE admission_applications ADD COLUMN sender_number VARCHAR(20) NULL AFTER payment_method");
-    }
-}
-
 // Handle form submission
 if(isset($_POST['submit_admission'])) {
-    ensureSenderNumberColumn($conn);
     $full_name = mysqli_real_escape_string($conn, $_POST['full_name']);
     $gender = mysqli_real_escape_string($conn, $_POST['gender']);
     $mobile = mysqli_real_escape_string($conn, $_POST['mobile']);
     $email = mysqli_real_escape_string($conn, trim($_POST['email']));
     $address = mysqli_real_escape_string($conn, $_POST['address']);
     $program = mysqli_real_escape_string($conn, $_POST['program']);
+    $group = mysqli_real_escape_string($conn, $_POST['group']);
+
+    // Split full name into first and last name for the current schema
+    $name_parts = explode(' ', trim($full_name));
+    $first_name = mysqli_real_escape_string($conn, array_shift($name_parts));
+    $last_name = mysqli_real_escape_string($conn, trim(implode(' ', $name_parts)));
+    $last_name = $last_name ?: '';
+
+    // Map selected program to the current classes table IDs
+    $program_class_map = [
+        'Class 9' => 1,
+        'Class 10' => 2,
+        'SSC Batch' => 3
+    ];
+    $class_id = $program_class_map[$program] ?? 1;
     $group = mysqli_real_escape_string($conn, $_POST['group']);
 
     $checkEmail = mysqli_query($conn, "SELECT id FROM admission_applications WHERE email = '$email' LIMIT 1");
@@ -29,6 +36,7 @@ if(isset($_POST['submit_admission'])) {
         $address = mysqli_real_escape_string($conn, $_POST['address']);
         $program = mysqli_real_escape_string($conn, $_POST['program']);
         $group = mysqli_real_escape_string($conn, $_POST['group']);
+        $class_id = $program_class_map[$program] ?? 1;
         
         // Parent Information
         $parent_name = mysqli_real_escape_string($conn, $_POST['parent_name']);
@@ -54,10 +62,18 @@ if(isset($_POST['submit_admission'])) {
         // Generate unique receipt number
         $receipt_no = 'RCP' . date('Ymd') . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
         
-        // Insert into database
-        $query = "INSERT INTO admission_applications (full_name, gender, mobile, email, address, program, `group`, parent_name, parent_email, parent_phone, monthly_fee, transaction_id, payment_method, sender_number, application_fee, receipt_no, status, created_at) 
-                  VALUES ('$full_name', '$gender', '$mobile', '$email', '$address', '$program', '$group', '$parent_name', '$parent_email', '$parent_phone', $monthly_fee, '$transaction_id', '$payment_method', '$sender_number', $application_fee, '$receipt_no', 'Pending', NOW())";
-        
+        // Insert into database using current admission_applications table schema
+        $query = "INSERT INTO admission_applications (
+    first_name, last_name, gender, phone, email, address,
+    class_id, program, `group`, parent_name, parent_email, parent_phone,
+    sender_number, transaction_id, payment_method,
+    application_fee, monthly_fee, status, created_at
+) VALUES (
+    '$first_name', '$last_name', '$gender', '$mobile', '$email', '$address',
+    $class_id, '$program', '$group', '$parent_name', '$parent_email', '$parent_phone',
+    '$sender_number', '$transaction_id', '$payment_method',
+    $application_fee, $monthly_fee, 'Pending', NOW()
+)";
         if(mysqli_query($conn, $query)) {
             $application_id = mysqli_insert_id($conn);
             

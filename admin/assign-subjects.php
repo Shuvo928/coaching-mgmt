@@ -2,6 +2,10 @@
 session_start();
 require_once '../includes/db.php';
 
+// Check if class_id column exists in teacher_subjects table
+$teacherSubjectsClassIdColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+$teacherSubjectsClassIdColumnExists = ($teacherSubjectsClassIdColumnCheck && mysqli_num_rows($teacherSubjectsClassIdColumnCheck) > 0);
+
 function autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects) {
     $assigned_subjects = trim($assigned_subjects);
     if($assigned_subjects === '') {
@@ -40,8 +44,19 @@ function autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects) {
                 $check_query = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id LIMIT 1";
                 $check_result = mysqli_query($conn, $check_query);
                 if($check_result && mysqli_num_rows($check_result) === 0) {
+                    global $teacherSubjectsClassIdColumnExists;
                     $class_id = intval($subject['class_id']);
-                    $insert_query = "INSERT INTO teacher_subjects (teacher_id, subject_id, class_id) VALUES ($teacher_id, $subject_id, " . ($class_id ? $class_id : 'NULL') . ")";
+                    
+                    // Build INSERT query conditionally
+                    $columns = "teacher_id, subject_id";
+                    $values = "$teacher_id, $subject_id";
+                    
+                    if ($teacherSubjectsClassIdColumnExists) {
+                        $columns .= ", class_id";
+                        $values .= ", " . ($class_id ? $class_id : 'NULL');
+                    }
+                    
+                    $insert_query = "INSERT INTO teacher_subjects ($columns) VALUES ($values)";
                     mysqli_query($conn, $insert_query);
                 }
             }
@@ -81,8 +96,18 @@ if(isset($_POST['assign'])) {
                 if($class_row = mysqli_fetch_assoc($class_result)) {
                     $class_id = intval($class_row['class_id']);
                 }
-                $insert_query = "INSERT INTO teacher_subjects (teacher_id, subject_id, class_id) 
-                                VALUES ($teacher_id, $subject_id, " . ($class_id ? $class_id : 'NULL') . ")";
+                
+                // Build INSERT query conditionally
+                global $teacherSubjectsClassIdColumnExists;
+                $columns = "teacher_id, subject_id";
+                $values = "$teacher_id, $subject_id";
+                
+                if ($teacherSubjectsClassIdColumnExists) {
+                    $columns .= ", class_id";
+                    $values .= ", " . ($class_id ? $class_id : 'NULL');
+                }
+                
+                $insert_query = "INSERT INTO teacher_subjects ($columns) VALUES ($values)";
                 if(!mysqli_query($conn, $insert_query)) {
                     throw new Exception(mysqli_error($conn));
                 }

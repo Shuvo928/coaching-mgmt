@@ -8,11 +8,16 @@ require_once 'includes/db.php';
 
 $output = [];
 
+// Check what phone column name exists in admission_applications
+$admissionPhoneColumn = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'mobile'");
+$admissionHasMobile = ($admissionPhoneColumn && mysqli_num_rows($admissionPhoneColumn) > 0);
+$admissionPhoneField = $admissionHasMobile ? 'mobile' : 'phone';
+
 try {
     // Get all students with their admission monthly fees
     $students_query = "SELECT s.id as student_id, s.class_id, aa.monthly_fee
                       FROM students s
-                      INNER JOIN admission_applications aa ON s.phone = aa.mobile
+                      INNER JOIN admission_applications aa ON s.phone = aa.$admissionPhoneField
                       WHERE s.status = 1 AND aa.status = 'Approved'";
     
     $students_result = mysqli_query($conn, $students_query);
