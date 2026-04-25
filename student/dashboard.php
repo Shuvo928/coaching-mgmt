@@ -132,21 +132,19 @@ if (!empty($user['id'])) {
             $class_routine[] = $routine;
         }
 
-        // Build results query with conditional exam_types JOIN
-        if ($examTypesTableExists) {
-            $results_query = "SELECT r.*, et.exam_name, sub.subject_name 
-                              FROM results r 
-                              LEFT JOIN exam_types et ON r.exam_type_id = et.id 
-                              LEFT JOIN subjects sub ON r.subject_id = sub.id 
-                              WHERE r.student_id = " . intval($student['id']) . " 
-                              ORDER BY r.id DESC LIMIT 6";
-        } else {
-            $results_query = "SELECT r.*, NULL AS exam_name, sub.subject_name 
-                              FROM results r 
-                              LEFT JOIN subjects sub ON r.subject_id = sub.id 
-                              WHERE r.student_id = " . intval($student['id']) . " 
-                              ORDER BY r.id DESC LIMIT 6";
-        }
+        // Build results query to include weekly and monthly tests
+        $results_query = "SELECT r.*, 
+                          CASE 
+                            WHEN r.test_type = 'weekly_test' THEN 'Weekly Test'
+                            WHEN r.test_type = 'monthly_test' THEN 'Monthly Test'
+                            WHEN r.test_type = 'exam' THEN 'Exam'
+                            ELSE 'Test'
+                          END AS test_name,
+                          sub.subject_name, r.created_at AS test_date
+                          FROM results r 
+                          LEFT JOIN subjects sub ON r.subject_id = sub.id 
+                          WHERE r.student_id = " . intval($student['id']) . " 
+                          ORDER BY r.created_at DESC LIMIT 10";
         $results_result = mysqli_query($conn, $results_query);
         while ($result = mysqli_fetch_assoc($results_result)) {
             $results[] = $result;
@@ -317,7 +315,7 @@ if (!empty($user['id'])) {
                                             }
                                         ?>
                                         <tr>
-                                            <td><?php echo htmlspecialchars($result['exam_name'] ?? 'N/A'); ?></td>
+                                            <td><?php echo htmlspecialchars($result['test_name'] ?? 'Test'); ?></td>
                                             <td><?php echo htmlspecialchars($result['subject_name'] ?? 'N/A'); ?></td>
                                             <td><?php 
                                                 if ($resultsMarksColumns && isset($result['marks_obtained']) && isset($result['total_marks'])) {

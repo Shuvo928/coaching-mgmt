@@ -2,6 +2,10 @@
 session_start();
 require_once '../includes/db.php';
 require_once '../includes/parent_helpers.php';
+require_once '../includes/payment_helpers.php';
+
+// Ensure payment history table exists
+createPaymentHistoryTable($conn);
 
 // Check if parent is logged in
 if(!isset($_SESSION['parent_id'])) {
@@ -17,6 +21,10 @@ $student_ids = getParentStudentIds($conn, $parent_id, $student_mobile);
 $firstStudent = getFirstParentStudent($conn, $parent_id, $student_mobile);
 $student_id = $firstStudent['id'] ?? 0;
 
+// Get student info
+$student_info = getStudentClassInfo($conn, $student_id);
+$class_fees = getClassWiseFeesByStudent($conn, $student_id);
+
 $monthly_fee = 0;
 if (!empty($student_mobile)) {
     $admission_query = "SELECT monthly_fee FROM admission_applications WHERE phone = '$student_mobile' LIMIT 1";
@@ -25,7 +33,22 @@ if (!empty($student_mobile)) {
     $monthly_fee = $admission_data['monthly_fee'] ?? 0;
 }
 
-// Handle monthly payment submission
+$outstanding_balance = getOutstandingBalance($conn, $student_id);
+
+function getPaymentsSummary($conn, $student_id) {
+    $student_id = (int)$student_id;
+    $query = "SELECT 
+                COUNT(*) AS total_payments,
+                SUM(amount_paid) AS total_paid,
+                MAX(payment_date) AS last_payment_date
+              FROM payment_history
+              WHERE student_id = $student_id";
+
+    $result = mysqli_query($conn, $query);
+    return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
+}
+
+// Handle monthly payment submission with payment history recording
 if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment'])) {
     $monthly_fee_id = intval($_POST['monthly_fee_id']);
     $payment_amount = floatval($_POST['payment_amount']);
@@ -34,14 +57,14 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment
     
     // Get current monthly fee record
     $student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
-    $fee_check = "SELECT id, expected_amount, paid_amount, payment_status FROM fee_collections WHERE id = $monthly_fee_id AND student_id IN ($student_ids_list)";
+    $fee_check = "SELECT id, expected_amount, paid_amount, payment_status, fee_month FROM fee_collections WHERE id = $monthly_fee_id AND student_id IN ($student_ids_list)";
     $fee_result = mysqli_query($conn, $fee_check);
     $fee = mysqli_fetch_assoc($fee_result);
     
     $fee_due = isset($fee['expected_amount']) && isset($fee['paid_amount']) ? $fee['expected_amount'] - $fee['paid_amount'] : 0;
     if($fee && $payment_amount > 0 && $payment_amount <= $fee_due) {
         // Generate receipt
-        $receipt_no = 'RCP' . date('Ymd') . str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+        $receipt_no = generateReceiptNumber();
         
         // Calculate new totals
         $new_paid = $fee['paid_amount'] + $payment_amount;
@@ -58,12 +81,18 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment
                        WHERE id = $monthly_fee_id";
         
         if(mysqli_query($conn, $update_fee)) {
+            // Record in payment history
+            recordPaymentHistory($conn, $student_id, $student_info['class_id'] ?? 0, $monthly_fee_id, 
+                               $transaction_id, $receipt_no, $payment_method, $payment_amount, 
+                               'Monthly Fee', $fee['fee_month'] ?? 'N/A');
+            
             // Log transaction
             $log_insert = "INSERT INTO sms_logs (mobile_number, message, type, status) 
                           VALUES ('$student_mobile', 'Monthly fee payment of ৳$payment_amount received via $payment_method. Receipt: $receipt_no', 'Student', 'Sent')";
             mysqli_query($conn, $log_insert);
             
             $_SESSION['success'] = "Payment of ৳$payment_amount received successfully! Receipt No: $receipt_no";
+            $_SESSION['receipt_no'] = $receipt_no;
             header("Refresh: 0");
             exit();
         } else {
@@ -74,35 +103,89 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment
     }
 }
 
-// Build student filter for parent-linked children.
-$student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
+// Ensure fee_collections has due_date column & admission_date column
+ensureFeeCollectionsDueDateColumn($conn);
+ensureStudentAdmissionDateColumn($conn);
 
-// Get fee collections for the parent-linked students
-$fees_query = "SELECT 
-                    fc.id,
-                    fc.fee_month,
-                    fc.expected_amount,
-                    fc.paid_amount,
-                    (fc.expected_amount - fc.paid_amount) as due_amount,
-                    fc.payment_status,
-                    fc.payment_date,
-                    fc.created_at
-                FROM fee_collections fc
-                WHERE fc.student_id IN ($student_ids_list)
-                ORDER BY fc.created_at DESC";
+// Build student filter - ONLY for current viewing student
+$student_id = $firstStudent['id'] ?? 0;
 
-$fees_result = mysqli_query($conn, $fees_query);
+// Auto-generate fees if not exists (ensures next month is always available)
+autoGenerateMonthlyFeesForStudent($conn, $student_id, $student_info['class_id'] ?? 0);
 
-// Calculate totals
+// Get fee collections with due date information for THIS student only
+$fees = getStudentFeesWithDueInfo($conn, $student_id);
+
+// Get current billing month information
+$current_billing_month = getCurrentBillingMonth($conn, $student_id);
+
+// Get upcoming fees for display (limit to 2 months)
+$upcoming_fees = getUpcomingFeesForStudent($conn, $student_id, 2);
+
+// Build due_fee_options for payment modal
+$due_fee_options = [];
+foreach ($fees as $fee) {
+    if ((float)$fee['due_amount'] > 0) {
+        $due_fee_options[] = [
+            'id' => $fee['id'],
+            'fee_month' => $fee['fee_month'],
+            'due_amount' => (float)$fee['due_amount'],
+        ];
+    }
+}
+
+// Calculate totals for THIS student only
 $totals_query = "SELECT 
                     SUM(expected_amount) as total_amount,
                     SUM(paid_amount) as total_paid,
                     SUM(expected_amount - paid_amount) as total_due
                 FROM fee_collections
-                WHERE student_id IN ($student_ids_list)";
+                WHERE student_id = $student_id";
 
 $totals_result = mysqli_query($conn, $totals_query);
 $totals = mysqli_fetch_assoc($totals_result);
+
+// Get payment history for THIS student only - NOT multiple students
+$payment_history = getPaymentHistoryByStudent($conn, $student_id);
+$admission_history = getAdmissionFeeHistoryByStudent($conn, $student_id);
+
+// SECURITY: Verify all admission records belong to THIS student's phone only
+$student_phone = mysqli_query($conn, "SELECT phone FROM students WHERE id = $student_id LIMIT 1");
+if ($student_phone && mysqli_num_rows($student_phone) > 0) {
+    $student_phone_data = mysqli_fetch_assoc($student_phone);
+    $this_student_phone = $student_phone_data['phone'];
+    
+    // Filter admission history to ensure only this student's phone is included
+    $admission_history = array_filter($admission_history, function($record) use ($this_student_phone) {
+        return isset($record['student_phone']) && $record['student_phone'] === $this_student_phone;
+    });
+}
+
+$payment_history = array_merge($admission_history, $payment_history);
+
+if (!empty($payment_history)) {
+    usort($payment_history, function($a, $b) {
+        return strcmp($b['payment_date'] ?? '', $a['payment_date'] ?? '');
+    });
+}
+
+// Check if viewing a receipt
+$receipt_to_view = $_SESSION['receipt_no'] ?? $_GET['receipt'] ?? null;
+$receipt_details = null;
+if ($receipt_to_view) {
+    // SECURITY: Only allow viewing receipts for the current student
+    $receipt_details = getPaymentReceiptDetails($conn, $receipt_to_view, $student_id);
+    
+    // If receipt doesn't exist or doesn't belong to this student, redirect
+    if (!$receipt_details && isset($_GET['receipt'])) {
+        // Security: Attempted to access unauthorized receipt
+        $_SESSION['error'] = "Invalid receipt or access denied.";
+        header("Location: fees.php");
+        exit();
+    }
+    
+    unset($_SESSION['receipt_no']);
+}
 ?>
 
 <!DOCTYPE html>
@@ -224,6 +307,11 @@ $totals = mysqli_fetch_assoc($totals_result);
             border-radius: 12px;
             padding: 20px;
             box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+            transition: transform 0.3s;
+        }
+
+        .fee-card:hover {
+            transform: translateY(-5px);
         }
 
         .fee-card.total {
@@ -261,11 +349,15 @@ $totals = mysqli_fetch_assoc($totals_result);
             border-radius: 12px;
             box-shadow: 0 5px 20px rgba(0,0,0,0.05);
             overflow: hidden;
+            margin-bottom: 30px;
         }
 
         .fees-container-header {
             padding: 25px;
             border-bottom: 2px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .fees-container h4 {
@@ -337,15 +429,36 @@ $totals = mysqli_fetch_assoc($totals_result);
 
         .no-data {
             text-align: center;
-            padding: 60px 20px;
-            color: #999;
+            padding: 80px 20px;
+            color: #666;
+            min-height: 220px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
 
         .no-data i {
-            font-size: 64px;
-            opacity: 0.2;
+            font-size: 72px;
+            opacity: 0.15;
             display: block;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .no-data p {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .history-summary {
+            margin-bottom: 20px;
+            padding: 15px 20px;
+            background: #eef6ff;
+            color: #0d47a1;
+            border: 1px solid #c5d9ff;
+            border-radius: 12px;
+            font-weight: 600;
         }
 
         /* Payment Modal */
@@ -407,10 +520,185 @@ $totals = mysqli_fetch_assoc($totals_result);
             margin: 0;
         }
 
+        /* Pay Bill Section */
+        .pay-bill-section {
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+            color: #0d47a1;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 25px rgba(30, 136, 229, 0.15);
+        }
+
+        .pay-bill-section h3 {
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+
+        .pay-bill-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .pay-bill-info-item {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .pay-bill-info-label {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .pay-bill-info-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .pay-bill-btn {
+            background: white;
+            color: #f44336;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 16px;
+        }
+
+        .pay-bill-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        /* Receipt Styles */
+        .receipt-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+            padding: 40px;
+            margin-bottom: 30px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .receipt-header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 20px;
+        }
+
+        .receipt-header h2 {
+            color: #333;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .receipt-header p {
+            color: #666;
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .receipt-details {
+            margin-bottom: 25px;
+        }
+
+        .receipt-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .receipt-row.total {
+            border-bottom: 2px solid #333;
+            border-top: 2px solid #333;
+            margin: 10px 0;
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        .receipt-label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .receipt-value {
+            color: #333;
+            font-weight: 600;
+            text-align: right;
+        }
+
+        .receipt-footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .print-btn {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 20px;
+            width: 100%;
+            transition: all 0.3s;
+        }
+
+        .print-btn:hover {
+            background: #1976d2;
+        }
+
+        .back-btn {
+            background: #757575;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 10px;
+            width: 100%;
+            transition: all 0.3s;
+        }
+
+        .back-btn:hover {
+            background: #616161;
+        }
+
         .alert {
             margin-bottom: 20px;
             border-radius: 10px;
             border: none;
+        }
+
+        @media print {
+            .sidebar, .top-bar, .fee-summary, .print-controls, .back-btn {
+                display: none;
+            }
+            .main-content {
+                margin-left: 0;
+                padding: 0;
+            }
+            .receipt-container {
+                box-shadow: none;
+                padding: 0;
+                max-width: 100%;
+            }
         }
 
         @media (max-width: 768px) {
@@ -502,6 +790,90 @@ $totals = mysqli_fetch_assoc($totals_result);
             </div>
             <?php endif; ?>
 
+            <!-- Display Receipt if Viewing One -->
+            <?php if($receipt_details): ?>
+            
+            <div class="receipt-container">
+                <div class="receipt-header">
+                    <h2><i class="fas fa-receipt me-2"></i>Payment Receipt</h2>
+                    <p>Thank you for your payment</p>
+                </div>
+
+                <div class="receipt-details">
+                    <div class="receipt-row">
+                        <span class="receipt-label">Receipt Number</span>
+                        <span class="receipt-value"><?php echo htmlspecialchars($receipt_details['receipt_no']); ?></span>
+                    </div>
+                    <div class="receipt-row">
+                        <span class="receipt-label">Payment Date</span>
+                        <span class="receipt-value"><?php echo date('d M, Y H:i A', strtotime($receipt_details['payment_date'])); ?></span>
+                    </div>
+
+                    <div style="margin: 20px 0; padding: 15px; background: #f0f4ff; border-radius: 8px;">
+                        <div class="receipt-row" style="border: none;">
+                            <span class="receipt-label">Student Name</span>
+                            <span class="receipt-value"><?php echo htmlspecialchars($receipt_details['student_name']); ?></span>
+                        </div>
+                        <div class="receipt-row" style="border: none;">
+                            <span class="receipt-label">Student ID</span>
+                            <span class="receipt-value"><?php echo htmlspecialchars($receipt_details['student_code'] ?? 'N/A'); ?></span>
+                        </div>
+                        <div class="receipt-row" style="border: none;">
+                            <span class="receipt-label">Class</span>
+                            <span class="receipt-value"><?php echo htmlspecialchars($receipt_details['class_name'] ?? 'N/A'); ?></span>
+                        </div>
+                        <div class="receipt-row" style="border: none;">
+                            <span class="receipt-label">Group</span>
+                            <span class="receipt-value"><?php echo htmlspecialchars($receipt_details['group_name'] ?? 'N/A'); ?></span>
+                        </div>
+                    </div>
+
+                    <div class="receipt-row">
+                        <span class="receipt-label">Fee Type</span>
+                        <span class="receipt-value"><?php echo htmlspecialchars($receipt_details['fee_type']); ?></span>
+                    </div>
+                    <div class="receipt-row">
+                        <span class="receipt-label">Month/Period</span>
+                        <span class="receipt-value"><?php echo htmlspecialchars($receipt_details['month_name']); ?></span>
+                    </div>
+                    <div class="receipt-row">
+                        <span class="receipt-label">Payment Method</span>
+                        <span class="receipt-value">
+                            <i class="fas fa-<?php 
+                                $method = $receipt_details['payment_method'];
+                                echo ($method === 'bKash') ? 'mobile-alt' : (($method === 'Nagad') ? 'wallet' : (($method === 'Rocket') ? 'rocket' : 'money-bill')); 
+                            ?> me-2"></i><?php echo htmlspecialchars($method); ?>
+                        </span>
+                    </div>
+                    <div class="receipt-row">
+                        <span class="receipt-label">Transaction ID</span>
+                        <span class="receipt-value"><?php echo htmlspecialchars($receipt_details['transaction_id']); ?></span>
+                    </div>
+
+                    <div class="receipt-row total">
+                        <span class="receipt-label">Amount Paid</span>
+                        <span class="receipt-value">৳<?php echo number_format($receipt_details['amount_paid'], 2); ?></span>
+                    </div>
+                </div>
+
+                <div class="receipt-footer">
+                    <p><strong>Payment Confirmation</strong></p>
+                    <p>This is an automated receipt. Please keep it for your records.</p>
+                    <p>For any queries, contact us at the office.</p>
+                </div>
+
+                <div class="print-controls">
+                    <button class="print-btn" onclick="window.print()">
+                        <i class="fas fa-print me-2"></i>Print Receipt
+                    </button>
+                    <button class="back-btn" onclick="location.href='fees.php'">
+                        <i class="fas fa-arrow-left me-2"></i>Back to Fees
+                    </button>
+                </div>
+            </div>
+
+            <?php else: ?>
+
             <!-- Top Bar -->
             <div class="top-bar">
                 <h2><i class="fas fa-money-bill me-3" style="color: #667eea;"></i>Fees & Payments</h2>
@@ -510,33 +882,72 @@ $totals = mysqli_fetch_assoc($totals_result);
 
             <!-- Fee Summary Cards -->
             <div class="fee-summary">
-                <div class="fee-card total">
-                    <span class="fee-amount">৳<?php echo number_format($totals['total_amount'] ?? 0, 2); ?></span>
-                    <div class="fee-label">Total Fees Amount</div>
-                </div>
-                <div class="fee-card paid">
-                    <span class="fee-amount">৳<?php echo number_format($totals['total_paid'] ?? 0, 2); ?></span>
-                    <div class="fee-label">Amount Paid</div>
-                </div>
-                <div class="fee-card due">
-                    <span class="fee-amount">৳<?php echo number_format($totals['total_due'] ?? 0, 2); ?></span>
-                    <div class="fee-label">Amount Due</div>
+                <div class="fee-card monthly">
+                    <span class="fee-amount"><?php 
+                        if ($current_billing_month) {
+                            echo htmlspecialchars($current_billing_month['fee_month']);
+                        } else {
+                            echo "No Due";
+                        }
+                    ?></span>
+                    <div class="fee-label">Current Billing Month</div>
+                    <?php if ($current_billing_month && $current_billing_month['due_date']): ?>
+                    <div style="font-size: 11px; margin-top: 8px; color: #ff9800; font-weight: 600;">
+                        Due: <?php echo date('d M, Y', strtotime($current_billing_month['due_date'])); ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <div class="fee-card monthly">
                     <span class="fee-amount">৳<?php echo number_format($monthly_fee, 2); ?></span>
                     <div class="fee-label">Monthly Fee</div>
+                    <div style="font-size: 11px; margin-top: 8px; color: #666;">
+                        For <?php echo htmlspecialchars($student_info['class_name'] ?? 'Your Class'); ?>
+                    </div>
+                </div>
+                </div>
+
+            <!-- Pay Bill Section -->
+            <div class="pay-bill-section">
+                <h3><i class="fas fa-credit-card me-2"></i>Pay Your Monthly Fees</h3>
+                <p style="margin: 0 0 20px 0; opacity: 0.9;">Easily pay your fees using mobile banking services</p>
+                
+                <div class="pay-bill-info">
+                    <div class="pay-bill-info-item">
+                        <div class="pay-bill-info-label">Outstanding Balance</div>
+                        <div class="pay-bill-info-value">৳<?php echo number_format($outstanding_balance, 2); ?></div>
+                    </div>
+                </div>
+
+                <button class="pay-bill-btn" type="button" onclick="openPaymentModalWithDefaultMonth()" data-bs-toggle="modal" data-bs-target="#paymentModal" <?php echo count($due_fee_options) === 0 ? 'disabled style="opacity: 0.7; cursor: not-allowed;"' : ''; ?> >
+                    <i class="fas fa-arrow-right me-2"></i><?php echo count($due_fee_options) > 0 ? 'Pay Now' : 'Pay Now'; ?>
+                </button>
+                <?php if (count($due_fee_options) === 0): ?>
+                    <div style="margin-top: 15px; color: #c62828; font-weight: 600;">No due fees available to pay.</div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Policy Declaration Section -->
+            <div style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 5px solid #4caf50; border-radius: 12px; padding: 25px; margin-bottom: 30px; box-shadow: 0 5px 20px rgba(76, 175, 80, 0.1);">
+                <div style="display: flex; align-items: flex-start; gap: 15px;">
+                    <div style="font-size: 32px; color: #4caf50; flex-shrink: 0;">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <div style="flex: 1;">
+                        <h5 style="color: #2e7d32; font-weight: 700; margin-bottom: 12px;">Important Policy Information</h5>
+                        <p style="color: #1b5e20; margin: 0; line-height: 1.6; font-size: 14px;">
+                            <strong>You have already paid the fees for the current month,</strong> which have been securely recorded in your child's account. If your child discontinues enrollment at our coaching center, this amount will be refundable in accordance with our policy.
+                        </p>
+                    </div>
                 </div>
             </div>
 
-
-
-            <!-- Fee Collection Table -->
+            <!-- Fee History Table -->
             <div class="fees-container">
                 <div class="fees-container-header">
-                    <h4><i class="fas fa-receipt me-2"></i>Payment History</h4>
+                    <h4><i class="fas fa-list me-2"></i>Fee Schedule & Status</h4>
                 </div>
 
-                <?php if(mysqli_num_rows($fees_result) > 0): ?>
+                <?php if(count($upcoming_fees) > 0): ?>
                 <div class="table-responsive">
                     <table class="table">
                         <thead>
@@ -545,26 +956,24 @@ $totals = mysqli_fetch_assoc($totals_result);
                                 <th>Amount</th>
                                 <th>Paid</th>
                                 <th>Due</th>
+                                <th>Due Date</th>
                                 <th>Status</th>
-                                <th>Payment Date</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php
-                            while($row = mysqli_fetch_assoc($fees_result)) {
+                            foreach($upcoming_fees as $row) {
                                 $status = $row['payment_status'];
                                 
                                 if($status == 'paid') {
                                     $status_class = 'status-paid';
-                                    $status_icon = '✓';
                                     $display_status = 'Paid';
                                 } elseif($status == 'partial') {
                                     $status_class = 'status-partial';
-                                    $status_icon = '⚠';
                                     $display_status = 'Partial';
                                 } else {
                                     $status_class = 'status-pending';
-                                    $status_icon = '⏳';
                                     $display_status = 'Unpaid';
                                 }
                             ?>
@@ -574,11 +983,35 @@ $totals = mysqli_fetch_assoc($totals_result);
                                 <td><span class="amount-text">৳<?php echo number_format($row['paid_amount'], 2); ?></span></td>
                                 <td><span class="amount-text">৳<?php echo number_format($row['due_amount'], 2); ?></span></td>
                                 <td>
+                                    <strong><?php echo $row['due_date'] ? date('d M, Y', strtotime($row['due_date'])) : '--'; ?></strong>
+                                    <?php if ($row['due_date'] && $row['payment_status'] != 'paid'): ?>
+                                        <br><small style="color: <?php echo ($row['fee_status'] === 'overdue') ? '#f44336' : (($row['fee_status'] === 'due-soon') ? '#ff9800' : '#666'); ?>;">
+                                            <?php 
+                                                if ($row['fee_status'] === 'overdue') {
+                                                    echo '⚠ OVERDUE';
+                                                } elseif ($row['fee_status'] === 'due-soon') {
+                                                    echo '⏰ DUE SOON';
+                                                } else {
+                                                    echo htmlspecialchars(abs($row['days_remaining'])) . ' days away';
+                                                }
+                                            ?>
+                                        </small>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
                                     <span class="<?php echo $status_class; ?>">
                                         <?php echo $display_status; ?>
                                     </span>
                                 </td>
-                                <td><?php echo $row['payment_date'] ? date('d M, Y', strtotime($row['payment_date'])) : '--'; ?></td>
+                                <td>
+                                    <?php if($row['due_amount'] > 0): ?>
+                                        <button class="payment-btn" onclick="initializeMonthlyPayment(<?php echo $row['id']; ?>, <?php echo $row['due_amount']; ?>, '<?php echo addslashes($row['fee_month']); ?>')" data-bs-toggle="modal" data-bs-target="#paymentModal">
+                                            Pay
+                                        </button>
+                                    <?php else: ?>
+                                        <span style="color: #4caf50; font-weight: 600;">✓ Paid</span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                             <?php } ?>
                         </tbody>
@@ -591,7 +1024,8 @@ $totals = mysqli_fetch_assoc($totals_result);
                 </div>
                 <?php endif; ?>
             </div>
-        </div>
+
+            <?php endif; ?>
     </div>
 
     <!-- Payment Modal -->
@@ -609,10 +1043,11 @@ $totals = mysqli_fetch_assoc($totals_result);
                         <input type="hidden" name="process_monthly_payment" value="1">
                         <input type="hidden" name="monthly_fee_id" id="monthly_fee_id">
                         
-                        <!-- Fee Month Display -->
+                        <!-- Month Selection -->
                         <div class="mb-4">
-                            <label class="form-label fw-600">Monthly Fee for</label>
-                            <input type="text" class="form-control" id="fee_name" readonly style="background: #f0f4ff; font-weight: 600; color: #333;">
+                            <label class="form-label fw-600">Month</label>
+                            <select id="fee_month" name="fee_month" class="form-select" onchange="updateSelectedFee()" required>
+                            </select>
                         </div>
 
                         <!-- Due Amount Display -->
@@ -662,9 +1097,9 @@ $totals = mysqli_fetch_assoc($totals_result);
                         <!-- Transaction ID -->
                         <div class="mb-4">
                             <label class="form-label fw-600">Transaction ID / Reference <span style="color: #f44336;">*</span></label>
-                            <input type="text" name="transaction_id" class="form-control" 
+                            <input type="text" name="transaction_id" id="transaction_id" class="form-control" 
                                    placeholder="e.g., Your bKash PIN or receipt number" required>
-                            <small class="text-muted">For mobile banking: your transaction confirmation number</small>
+                            <small class="text-muted" id="method_hint">For mobile banking: your transaction confirmation number</small>
                         </div>
 
                         <!-- Submit Button -->
@@ -684,21 +1119,58 @@ $totals = mysqli_fetch_assoc($totals_result);
     
     <script>
         let selectedPaymentMethod = null;
-        let currentDueAmount = 0;
+        let currentDueAmount = null;
+        const feeOptions = <?php echo json_encode(array_values($due_fee_options)); ?>;
+
+        function populateMonthDropdown(selectedId) {
+            const select = document.getElementById('fee_month');
+            select.innerHTML = '';
+            feeOptions.forEach(option => {
+                const item = document.createElement('option');
+                item.value = option.id;
+                item.textContent = option.fee_month;
+                if (selectedId && option.id == selectedId) {
+                    item.selected = true;
+                }
+                select.appendChild(item);
+            });
+        }
+
+        function updateSelectedFee() {
+            const selectedId = parseInt(document.getElementById('fee_month').value, 10);
+            const selected = feeOptions.find(option => option.id === selectedId);
+            if (!selected) {
+                currentDueAmount = null;
+                document.getElementById('due_amount').textContent = '0.00';
+                document.getElementById('payment_amount').value = '';
+                return;
+            }
+            document.getElementById('monthly_fee_id').value = selected.id;
+            document.getElementById('due_amount').textContent = selected.due_amount.toFixed(2);
+            document.getElementById('payment_amount').value = selected.due_amount.toFixed(2);
+            document.getElementById('payment_amount').max = selected.due_amount;
+            currentDueAmount = selected.due_amount;
+            document.getElementById('amount_error').textContent = '';
+            document.getElementById('method_error').textContent = '';
+        }
 
         function initializeMonthlyPayment(monthlyFeeId, dueAmount, monthName) {
+            populateMonthDropdown(monthlyFeeId);
+            updateSelectedFee();
             document.getElementById('monthly_fee_id').value = monthlyFeeId;
-            document.getElementById('due_amount').textContent = dueAmount.toFixed(2);
-            document.getElementById('fee_name').value = monthName;
-            document.getElementById('payment_amount').value = dueAmount.toFixed(2);
-            document.getElementById('payment_amount').max = dueAmount;
-            currentDueAmount = dueAmount;
-            
-            // Reset form
+            document.getElementById('transaction_id').value = '';
             document.querySelectorAll('.payment-method').forEach(el => el.classList.remove('selected'));
             document.querySelectorAll('input[name="payment_method"]').forEach(el => el.checked = false);
             selectedPaymentMethod = null;
-            document.getElementById('transaction_id').value = '';
+        }
+
+        function openPaymentModalWithDefaultMonth() {
+            if (feeOptions.length === 0) {
+                alert('No due fees are currently available to pay.');
+                return;
+            }
+            const firstOption = feeOptions[0];
+            initializeMonthlyPayment(firstOption.id, firstOption.due_amount, firstOption.fee_month);
         }
 
         function selectPaymentMethod(element, method) {
@@ -710,6 +1182,18 @@ $totals = mysqli_fetch_assoc($totals_result);
             element.querySelector('input[type="radio"]').checked = true;
             selectedPaymentMethod = method;
             document.getElementById('method_error').textContent = '';
+
+            // Update hint text
+            const hint = document.getElementById('method_hint');
+            if (method === 'bKash') {
+                hint.textContent = 'For bKash: Enter your transaction reference number or PIN';
+            } else if (method === 'Nagad') {
+                hint.textContent = 'For Nagad: Enter your transaction confirmation number';
+            } else if (method === 'Rocket') {
+                hint.textContent = 'For Rocket: Enter your transaction reference number';
+            } else if (method === 'Cash') {
+                hint.textContent = 'For Cash Payment: You can enter any reference or "CASH"';
+            }
         }
 
         document.getElementById('paymentForm').addEventListener('submit', function(e) {
@@ -723,8 +1207,13 @@ $totals = mysqli_fetch_assoc($totals_result);
                 return false;
             }
             
-            if(amount <= 0 || amount > currentDueAmount) {
-                document.getElementById('amount_error').textContent = 'Invalid amount. Please enter amount between 1 and ' + currentDueAmount;
+            if (currentDueAmount === null || currentDueAmount <= 0) {
+                document.getElementById('amount_error').textContent = 'Please select a month with a valid due amount.';
+                return false;
+            }
+            
+            if(isNaN(amount) || amount <= 0 || amount > currentDueAmount) {
+                document.getElementById('amount_error').textContent = 'Invalid amount. Please enter an amount between 1 and ' + currentDueAmount.toFixed(2);
                 return false;
             }
             

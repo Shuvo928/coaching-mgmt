@@ -1,9 +1,9 @@
 <?php
 session_start();
-require_once '../includes/db.php';
+require_once '../includes/db.php'; // adjust path if needed
 
-// Check if user is logged in and is a teacher
-if(!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'teacher') {
+// Authentication check
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'teacher') {
     header("Location: login.php");
     exit();
 }
@@ -11,94 +11,186 @@ if(!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'teacher') {
 $user_id = $_SESSION['user_id'];
 
 // Get teacher details
-$teacher_query = "SELECT t.* FROM teachers t WHERE t.user_id = '$user_id'";
+$teacher_query = "SELECT * FROM teachers WHERE user_id = '$user_id'";
 $teacher_result = mysqli_query($conn, $teacher_query);
-
-if(mysqli_num_rows($teacher_result) == 0) {
+if (mysqli_num_rows($teacher_result) == 0) {
     die("Teacher record not found. Please contact admin.");
 }
-
 $teacher = mysqli_fetch_assoc($teacher_result);
 $teacher_id = $teacher['id'];
 
-// Check if assigned_subjects column exists
-$assignedSubjectsColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teachers LIKE 'assigned_subjects'");
-$assignedSubjectsColumnExists = ($assignedSubjectsColumnCheck && mysqli_num_rows($assignedSubjectsColumnCheck) > 0);
+// ------------------------------------------------------------------
+// 1. Fetch teacher's assigned subjects (for validation & dropdown)
+// ------------------------------------------------------------------
+// First, check if class_id column exists in subjects table
+$class_id_check = mysqli_query($conn, "SHOW COLUMNS FROM subjects LIKE 'class_id'");
+$has_class_id = ($class_id_check && mysqli_num_rows($class_id_check) > 0);
 
-// Check if class_id column exists in teacher_subjects table
-$teacherSubjectsClassIdColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
-$teacherSubjectsClassIdColumnExists = ($teacherSubjectsClassIdColumnCheck && mysqli_num_rows($teacherSubjectsClassIdColumnCheck) > 0);
-
-// Get teacher's class routine (weekly schedule)
-$routine_query = "SELECT cr.*, c.class_name, s.subject_name, s.subject_code
-                  FROM class_routine cr
-                  JOIN classes c ON cr.class_id = c.id
-                  JOIN subjects s ON cr.subject_id = s.id
-                  WHERE cr.teacher_id = '$teacher_id'
-                  ORDER BY FIELD(cr.day,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), cr.start_time";
-$routine_result = mysqli_query($conn, $routine_query);
-
-// Get teacher's subjects for result filtering
-$subjects_query = "SELECT DISTINCT s.id, s.subject_name, s.subject_code, c.class_name
-                  FROM teacher_subjects ts
-                  JOIN subjects s ON ts.subject_id = s.id
-                  JOIN classes c ON ts.class_id = c.id
-                  WHERE ts.teacher_id = '$teacher_id'";
-$subjects_result = mysqli_query($conn, $subjects_query);
-
-// Get recent exam routines (upcoming exams)
-$recent_results_query = "SELECT er.*, c.class_name, s.subject_name
-                        FROM exam_routine er
-                        JOIN classes c ON er.class_id = c.id
-                        JOIN subjects s ON er.subject_id = s.id
-                        WHERE er.subject_id IN (SELECT subject_id FROM teacher_subjects WHERE teacher_id = '$teacher_id')
-                        ORDER BY er.exam_date DESC LIMIT 10";
-$recent_results_result = mysqli_query($conn, $recent_results_query);
-
-// Get students list for result entry
-if ($teacherSubjectsClassIdColumnExists) {
-    $students_query = "SELECT s.id, s.first_name, s.last_name, s.roll_number, c.class_name
-                      FROM students s
-                      JOIN classes c ON s.class_id = c.id
-                      WHERE s.class_id IN (SELECT class_id FROM teacher_subjects WHERE teacher_id = '$teacher_id')
-                      ORDER BY c.class_name, s.roll_number";
-} else {
-    $students_query = "SELECT s.id, s.first_name, s.last_name, s.roll_number, c.class_name
-                      FROM students s
-                      JOIN classes c ON s.class_id = c.id
-                      WHERE s.class_id IN (SELECT class_id FROM subjects WHERE id IN (SELECT subject_id FROM teacher_subjects WHERE teacher_id = '$teacher_id'))
-                      ORDER BY c.class_name, s.roll_number";
+if (!$has_class_id) {
+    die("<div style='color: red; padding: 20px;'><h3>Database Migration Required</h3>
+         <p>The 'class_id' column is missing from the subjects table.</p>
+         <p>Please run the migration script: <a href='../setup-subjects-class-id.php'>setup-subjects-class-id.php</a></p>
+         <p>After running the migration, please refresh this page.</p>
+         </div>");
 }
-$students_result = mysqli_query($conn, $students_query);
 
-// Handle result submission
-if(isset($_POST['add_result'])) {
-    $student_id = $_POST['student_id'];
-    $exam_id = $_POST['exam_id'];
-    $subject_id = $_POST['subject_id'];
-    $marks_obtained = $_POST['marks_obtained'];
-    $grade = $_POST['grade'];
-    $status = ($marks_obtained >= 40) ? 'pass' : 'fail';
-    $remarks = $_POST['remarks'];
+$assigned_subjects_query = "SELECT ts.subject_id, s.subject_name, s.class_id, c.class_name
+                            FROM teacher_subjects ts
+                            JOIN subjects s ON ts.subject_id = s.id
+                            JOIN classes c ON s.class_id = c.id
+                            WHERE ts.teacher_id = $teacher_id
+                            ORDER BY c.class_name, s.subject_name";
+$assigned_subjects = mysqli_query($conn, $assigned_subjects_query);
+
+// Build a quick lookup for permission checks
+$allowed_subject_ids = [];
+$allowed_combinations = []; // for frontend filtering
+while ($row = mysqli_fetch_assoc($assigned_subjects)) {
+    $allowed_subject_ids[] = $row['subject_id'];
+    $allowed_combinations[] = [
+        'class_id' => $row['class_id'],
+        'subject_id' => $row['subject_id'],
+        'subject_name' => $row['subject_name'],
+        'class_name' => $row['class_name']
+    ];
+}
+// Reset pointer for later use
+mysqli_data_seek($assigned_subjects, 0);
+
+// ------------------------------------------------------------------
+// 2. Handle Bulk Save / Update of marks
+// ------------------------------------------------------------------
+$success_msg = '';
+$error_msg = '';
+
+if (isset($_GET['save_bulk_marks']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
     
-    // Check if result already exists
-    $check_query = "SELECT id FROM results WHERE student_id = '$student_id' AND exam_id = '$exam_id' AND subject_id = '$subject_id'";
-    $check_result = mysqli_query($conn, $check_query);
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
     
-    if(mysqli_num_rows($check_result) > 0) {
-        // Update existing result
-        $update_query = "UPDATE results SET marks_obtained = '$marks_obtained', grade = '$grade', status = '$status', remarks = '$remarks' 
-                         WHERE student_id = '$student_id' AND exam_id = '$exam_id' AND subject_id = '$subject_id'";
-        mysqli_query($conn, $update_query);
-        $success_msg = "Result updated successfully!";
+    if (!isset($data['marks']) || !is_array($data['marks'])) {
+        echo json_encode(['success' => false, 'message' => 'Invalid data format']);
+        exit;
+    }
+    
+    $marks_to_save = $data['marks'];
+    $saved_count = 0;
+    $errors = [];
+    
+    foreach ($marks_to_save as $item) {
+        $student_id = intval($item['student_id']);
+        $subject_id = intval($item['subject_id']);
+        $exam_type = mysqli_real_escape_string($conn, $item['exam_type']);
+        $marks = floatval($item['marks']);
+        
+        // Validation
+        if ($student_id <= 0 || $subject_id <= 0) {
+            $errors[] = "Invalid student or subject ID";
+            continue;
+        }
+        
+        if ($marks < 0 || $marks > 100) {
+            $errors[] = "Marks for student $student_id must be between 0 and 100";
+            continue;
+        }
+        
+        // Security: verify teacher is allowed to enter marks for this subject
+        $check_sql = "SELECT 1 FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id";
+        $check_res = mysqli_query($conn, $check_sql);
+        if (mysqli_num_rows($check_res) == 0) {
+            $errors[] = "You are not allowed to add marks for subject ID $subject_id";
+            continue;
+        }
+        
+        // Check if result already exists (student_id + subject_id + exam_type)
+        $exists_sql = "SELECT id FROM results WHERE student_id = $student_id AND subject_id = $subject_id AND exam_type = '$exam_type'";
+        $exists_res = mysqli_query($conn, $exists_sql);
+        
+        if (mysqli_num_rows($exists_res) > 0) {
+            // Update
+            $update_sql = "UPDATE results SET marks = $marks, updated_at = NOW() 
+                          WHERE student_id = $student_id AND subject_id = $subject_id AND exam_type = '$exam_type'";
+            if (mysqli_query($conn, $update_sql)) {
+                $saved_count++;
+            } else {
+                $errors[] = "Error updating marks for student $student_id: " . mysqli_error($conn);
+            }
+        } else {
+            // Insert new
+            $insert_sql = "INSERT INTO results (student_id, subject_id, exam_type, marks, created_at, updated_at) 
+                          VALUES ($student_id, $subject_id, '$exam_type', $marks, NOW(), NOW())";
+            if (mysqli_query($conn, $insert_sql)) {
+                $saved_count++;
+            } else {
+                $errors[] = "Error inserting marks for student $student_id: " . mysqli_error($conn);
+            }
+        }
+    }
+    
+    if ($saved_count > 0) {
+        echo json_encode(['success' => true, 'message' => "Successfully saved $saved_count student mark(s)." . (count($errors) > 0 ? " Errors: " . implode(", ", $errors) : "")]);
     } else {
-        // Insert new result
-        $insert_query = "INSERT INTO results (student_id, exam_id, subject_id, marks_obtained, grade, status, remarks) 
-                         VALUES ('$student_id', '$exam_id', '$subject_id', '$marks_obtained', '$grade', '$status', '$remarks')";
-        mysqli_query($conn, $insert_query);
-        $success_msg = "Result added successfully!";
+        echo json_encode(['success' => false, 'message' => "No marks were saved. " . implode(", ", $errors)]);
+    }
+    exit;
+}
+
+// ------------------------------------------------------------------
+// 3. Fetch list of students (only classes where teacher has subjects)
+// ------------------------------------------------------------------
+$class_ids_allowed = array_unique(array_column($allowed_combinations, 'class_id'));
+$class_ids_str = implode(',', $class_ids_allowed);
+$students_list = [];
+if (!empty($class_ids_str)) {
+    $students_sql = "SELECT s.id, s.student_name, s.roll_number, s.class_id, s.group_id,
+                            c.class_name, g.group_name
+                     FROM students s
+                     JOIN classes c ON s.class_id = c.id
+                     JOIN `groups` g ON s.group_id = g.id
+                     WHERE s.class_id IN ($class_ids_str)
+                     ORDER BY c.class_name, g.group_name, s.roll_number";
+    $students_res = mysqli_query($conn, $students_sql);
+    while ($stu = mysqli_fetch_assoc($students_res)) {
+        $students_list[] = $stu;
     }
 }
+
+// ------------------------------------------------------------------
+// 4. Fetch existing results (for display) – only teacher's subjects
+// ------------------------------------------------------------------
+$allowed_subjects_str = implode(',', $allowed_subject_ids);
+$recent_results = [];
+if (!empty($allowed_subjects_str)) {
+    $results_sql = "SELECT r.*, s.student_name, s.roll_number, sub.subject_name, c.class_name, g.group_name
+                    FROM results r
+                    JOIN students s ON r.student_id = s.id
+                    JOIN subjects sub ON r.subject_id = sub.id
+                    JOIN classes c ON sub.class_id = c.id
+                    JOIN `groups` g ON s.group_id = g.id
+                    WHERE r.subject_id IN ($allowed_subjects_str)
+                    ORDER BY r.created_at DESC
+                    LIMIT 50";
+    $results_res = mysqli_query($conn, $results_sql);
+    while ($row = mysqli_fetch_assoc($results_res)) {
+        $recent_results[] = $row;
+    }
+}
+
+// ------------------------------------------------------------------
+// 5. Fetch class & group lists for dynamic dropdowns (only those where teacher has at least one subject)
+// ------------------------------------------------------------------
+$available_classes = [];
+$available_groups = [];
+foreach ($allowed_combinations as $comb) {
+    $available_classes[$comb['class_id']] = $comb['class_name'];
+}
+// Get groups from students list (since groups are associated with students, not subjects)
+foreach ($students_list as $student) {
+    $available_groups[$student['group_id']] = $student['group_name'];
+}
+$available_classes = array_unique($available_classes);
+$available_groups = array_unique($available_groups);
 ?>
 
 <!DOCTYPE html>
@@ -106,705 +198,656 @@ if(isset($_POST['add_result'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teacher Dashboard - CoachingPro</title>
-    
-    <!-- Bootstrap 5 CSS -->
+    <title>Teacher Dashboard | Result Management</title>
+    <!-- Bootstrap 5 + Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome 6 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- DataTables -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
             font-family: 'Inter', sans-serif;
-            background: #f3f4f6;
+            background: #f4f7fc;
         }
-
-        /* Sidebar */
         .sidebar {
             position: fixed;
             left: 0;
             top: 0;
             bottom: 0;
             width: 260px;
-            background: #1a1c2e;
-            color: #fff;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            background: #1e2a3a;
+            color: white;
+            padding: 1.5rem;
             overflow-y: auto;
         }
-
-        .sidebar-header {
-            padding: 25px 20px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .sidebar-header h3 {
-            font-size: 20px;
-            font-weight: 600;
-            margin: 0;
-            color: #fff;
-        }
-
-        .sidebar-header p {
-            font-size: 13px;
-            color: #a0a3bd;
-            margin: 5px 0 0 0;
-        }
-
-        .nav-menu {
-            padding: 20px 0;
-        }
-
-        .nav-item {
-            padding: 12px 20px;
-            margin: 5px 10px;
-            border-radius: 8px;
-            transition: all 0.3s;
-        }
-
-        .nav-item:hover, .nav-item.active {
-            background: rgba(255,255,255,0.1);
-        }
-
-        .nav-item i {
-            width: 22px;
-            font-size: 16px;
-            margin-right: 10px;
-            color: #a0a3bd;
-        }
-
-        .nav-item a {
-            color: #fff;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .nav-item:hover i, .nav-item.active i {
-            color: #fff;
-        }
-
-        /* Main Content */
         .main-content {
             margin-left: 260px;
-            padding: 30px;
+            padding: 2rem;
         }
-
-        /* Top Bar */
-        .top-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            background: #fff;
-            padding: 15px 25px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        }
-
-        .page-title h2 {
-            font-size: 22px;
-            font-weight: 600;
-            color: #333;
-            margin: 0;
-        }
-
-        .page-title p {
-            color: #666;
-            font-size: 13px;
-            margin: 5px 0 0 0;
-        }
-
-        .profile-info {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .profile-info img {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            object-fit: cover;
-        }
-
-        .profile-text {
-            text-align: right;
-        }
-
-        .profile-text h6 {
-            font-size: 14px;
-            font-weight: 600;
-            margin: 0;
-            color: #333;
-        }
-
-        .profile-text span {
-            font-size: 12px;
-            color: #666;
-        }
-
-        /* Cards */
         .card {
-            background: #fff;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            border: 1px solid #e5e7eb;
-            margin-bottom: 30px;
+            border: none;
+            border-radius: 1.25rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
         }
-
         .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #f0f0f0;
-        }
-
-        .card-header h5 {
-            font-size: 18px;
+            background: white;
+            border-bottom: 1px solid #e9ecef;
             font-weight: 600;
-            color: #333;
-            margin: 0;
+            padding: 1rem 1.5rem;
+            border-radius: 1.25rem 1.25rem 0 0 !important;
         }
-
-        .card-header h5 i {
-            color: #3b82f6;
-            margin-right: 10px;
+        .btn-primary-custom {
+            background: #2c3e66;
+            border: none;
+            border-radius: 2rem;
+            padding: 0.5rem 1.5rem;
         }
-
-        /* Routine Table */
-        .routine-table {
-            width: 100%;
-            border-collapse: collapse;
+        .form-select, .form-control {
+            border-radius: 0.75rem;
+            border: 1px solid #ced4da;
         }
-
-        .routine-table th {
+        .table th {
             background: #f8fafc;
-            padding: 12px;
-            text-align: left;
-            font-size: 13px;
             font-weight: 600;
-            color: #333;
-            border-bottom: 2px solid #e5e7eb;
         }
-
-        .routine-table td {
-            padding: 12px;
-            border-bottom: 1px solid #e5e7eb;
-            font-size: 14px;
-        }
-
-        .routine-table tr:hover {
-            background: #f8fafc;
-        }
-
-        .day-badge {
-            background: #e5e7eb;
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        /* Form Styles */
-        .form-section {
-            background: #f8fafc;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-
-        .form-label {
-            font-size: 13px;
-            font-weight: 500;
-            color: #333;
-            margin-bottom: 5px;
-        }
-
-        .form-control, .form-select {
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 13px;
-        }
-
-        .form-control:focus, .form-select:focus {
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 2px rgba(59,130,246,0.1);
-            outline: none;
-        }
-
-        .btn-primary {
-            background: #3b82f6;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
-            color: white;
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-        }
-
-        .btn-primary:hover {
-            background: #2563eb;
-        }
-
-        .btn-success {
-            background: #10b981;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            color: white;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-        }
-
-        .btn-success:hover {
-            background: #059669;
-        }
-
-        .btn-warning {
-            background: #f59e0b;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            color: white;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-        }
-
-        /* Alert */
-        .alert {
-            padding: 12px 20px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            font-size: 13px;
-        }
-
-        .alert-success {
-            background: #d1fae5;
-            color: #065f46;
-            border: 1px solid #a7f3d0;
-        }
-
-        .menu-toggle {
-            display: none;
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            z-index: 1001;
-            background: #1a1c2e;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            padding: 8px 12px;
-            cursor: pointer;
-        }
-
-        @media (max-width: 992px) {
+        @media (max-width: 768px) {
             .sidebar {
                 transform: translateX(-100%);
-                transition: transform 0.3s;
-                z-index: 1000;
+                transition: 0.3s;
+                z-index: 1050;
             }
-            .sidebar.active {
+            .sidebar.show {
                 transform: translateX(0);
             }
             .main-content {
                 margin-left: 0;
             }
-            .menu-toggle {
-                display: block;
-            }
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
         }
-
-        @media (max-width: 768px) {
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-            .main-content {
-                padding: 20px;
-            }
+        .badge-pass { background: #d1fae5; color: #065f46; }
+        .badge-fail { background: #fee2e2; color: #991b1b; }
+        .sidebar-section {
+            margin-top: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #3a4a5a;
         }
-
-        .text-muted {
-            color: #6b7280;
-            font-size: 12px;
+        .sidebar-section h6 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #a0aec0;
+            text-transform: uppercase;
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.5px;
         }
-
-        .result-table {
-            font-size: 13px;
+        .sidebar-item {
+            font-size: 0.9rem;
+            color: #e2e8f0;
+            padding: 0.35rem 0;
+            margin: 0.25rem 0;
         }
-
-        .result-table th {
-            background: #f8fafc;
-        }
-
-        .badge-pass {
-            background: #d1fae5;
-            color: #065f46;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-        }
-
-        .badge-fail {
-            background: #fee2e2;
-            color: #991b1b;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
+        .sidebar-badge {
+            display: inline-block;
+            background: #2d3748;
+            color: #cbd5e0;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.35rem;
+            font-size: 0.8rem;
+            margin: 0.25rem 0.25rem 0.25rem 0;
         }
     </style>
 </head>
 <body>
-    <button class="menu-toggle" onclick="toggleSidebar()">
-        <i class="fas fa-bars"></i>
-    </button>
 
-    <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <h3><?php echo htmlspecialchars($teacher['first_name'] . ' ' . $teacher['last_name']); ?></h3>
-            <p><?php echo htmlspecialchars($teacher['email']); ?></p>
-        </div>
-
-        <div class="nav-menu">
-            <div class="nav-item active">
-                <a href="#dashboard"><i class="fas fa-home"></i> Dashboard</a>
-            </div>
-            <div class="nav-item">
-                <a href="#routine"><i class="fas fa-calendar-alt"></i> Class Routine</a>
-            </div>
-            <div class="nav-item">
-                <a href="#results"><i class="fas fa-chart-bar"></i> Result Management</a>
-            </div>
-            <div class="nav-item">
-                <a href="profile.php"><i class="fas fa-user"></i> Profile</a>
-            </div>
-            <div class="nav-item">
-                <a href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
-            </div>
+<!-- Simple Sidebar -->
+<div class="sidebar" id="sidebar">
+    <h4 class="mb-4"><i class="fas fa-chalkboard-user me-2"></i> Teacher Panel</h4>
+    <ul class="nav flex-column">
+        <li class="nav-item mb-2"><a href="#result-section" class="nav-link text-white"><i class="fas fa-edit me-2"></i>Result Entry</a></li>
+        <li class="nav-item mb-2"><a href="#my-results" class="nav-link text-white"><i class="fas fa-table-list me-2"></i>My Results</a></li>
+        <li class="nav-item"><a href="logout.php" class="nav-link text-white"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+    </ul>
+    <hr class="bg-secondary">
+    
+    <!-- Teacher Info Section -->
+    <div class="sidebar-section">
+        <h6><i class="fas fa-user-circle me-1"></i> Teacher Info</h6>
+        <div class="sidebar-item">
+            <strong><?= htmlspecialchars($teacher['first_name'] . ' ' . $teacher['last_name']) ?></strong><br>
+            <span class="text-white-50" style="font-size: 0.85rem;">ID: <?= $teacher_id ?></span>
         </div>
     </div>
 
-    <!-- Main Content -->
-    <div class="main-content">
-        <!-- Top Bar -->
-        <div class="top-bar">
-            <div class="page-title">
-                <h2>Teacher Dashboard</h2>
-                <p><i class="far fa-calendar-alt me-1"></i> <?php echo date('l, F j, Y'); ?></p>
-            </div>
-            <div class="profile-info">
-                <div class="profile-text">
-                    <h6><?php echo htmlspecialchars($teacher['first_name'] . ' ' . $teacher['last_name']); ?></h6>
-                    <span>Teacher</span>
+    <!-- Assigned Subjects Section -->
+    <div class="sidebar-section">
+        <h6><i class="fas fa-book me-1"></i> Assigned Subjects</h6>
+        <?php 
+        $subjects_by_class = [];
+        foreach ($allowed_combinations as $combo) {
+            if (!isset($subjects_by_class[$combo['class_name']])) {
+                $subjects_by_class[$combo['class_name']] = [];
+            }
+            $subjects_by_class[$combo['class_name']][] = $combo['subject_name'];
+        }
+        
+        if (empty($subjects_by_class)): 
+        ?>
+            <div class="text-white-50" style="font-size: 0.9rem;">No subjects assigned</div>
+        <?php else: ?>
+            <?php foreach ($subjects_by_class as $class_name => $subjects): ?>
+                <div class="sidebar-item">
+                    <strong style="color: #38b6ff;"><?= htmlspecialchars($class_name) ?></strong><br>
+                    <?php foreach ($subjects as $subject): ?>
+                        <span class="sidebar-badge"><?= htmlspecialchars($subject) ?></span>
+                    <?php endforeach; ?>
                 </div>
-                
-            </div>
-        </div>
-
-        <!-- Success Message -->
-        <?php if(isset($success_msg)): ?>
-            <div class="alert alert-success">
-                <i class="fas fa-check-circle me-2"></i> <?php echo $success_msg; ?>
-            </div>
+            <?php endforeach; ?>
         <?php endif; ?>
+    </div>
 
-        <!-- Preferred Subjects Section -->
-        <?php if ($assignedSubjectsColumnExists): ?>
-        <div class="card" id="preferred-subjects">
-            <div class="card-header">
-                <h5><i class="fas fa-book"></i> Preferred Subjects</h5>
-            </div>
-            <div class="card-body">
-                <?php if(!empty(trim($teacher['assigned_subjects']))): ?>
-                    <?php
-                        $subjects = array_filter(array_map('trim', explode(',', $teacher['assigned_subjects'])));
-                    ?>
-                    <p class="text-muted mb-0">
-                        <?php echo htmlspecialchars(implode(', ', $subjects)); ?>
-                    </p>
-                <?php else: ?>
-                    <p class="text-muted mb-0">No preferred subjects assigned yet.</p>
-                <?php endif; ?>
-            </div>
-        </div>
+    <!-- Classes Section -->
+    <div class="sidebar-section">
+        <h6><i class="fas fa-graduation-cap me-1"></i> Classes</h6>
+        <?php 
+        if (empty($available_classes)): 
+        ?>
+            <div class="text-white-50" style="font-size: 0.9rem;">No classes assigned</div>
+        <?php else: ?>
+            <?php foreach ($available_classes as $cid => $cname): ?>
+                <div class="sidebar-item">
+                    <span class="sidebar-badge" style="background: #4a5568; color: #63b3ed;">📚 <?= htmlspecialchars($cname) ?></span>
+                </div>
+            <?php endforeach; ?>
         <?php endif; ?>
+    </div>
 
-        <!-- Class Routine Section -->
-        <div class="card" id="routine">
-            <div class="card-header">
-                <h5><i class="fas fa-calendar-alt"></i> My Class Routine</h5>
-                <span class="badge bg-primary">Weekly Schedule</span>
+    <!-- Groups Section -->
+    <div class="sidebar-section">
+        <h6><i class="fas fa-users me-1"></i> Groups</h6>
+        <?php 
+        if (empty($available_groups)): 
+        ?>
+            <div class="text-white-50" style="font-size: 0.9rem;">No groups assigned</div>
+        <?php else: ?>
+            <?php foreach ($available_groups as $gid => $gname): ?>
+                <div class="sidebar-item">
+                    <span class="sidebar-badge" style="background: #44337a; color: #b19cd9;">👥 <?= htmlspecialchars($gname) ?></span>
+                </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- Main Content -->
+<div class="main-content">
+    <button class="btn btn-dark d-md-none mb-3" id="menuToggle"><i class="fas fa-bars"></i> Menu</button>
+
+    <!-- Success/Error Messages -->
+    <?php if ($success_msg): ?>
+        <div class="alert alert-success alert-dismissible fade show" role="alert"><?= $success_msg ?> <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <?php endif; ?>
+    <?php if ($error_msg): ?>
+        <div class="alert alert-danger alert-dismissible fade show" role="alert"><?= $error_msg ?> <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <?php endif; ?>
+
+    <!-- === FILTER & STUDENT MARKS TABLE === -->
+    <div class="card" id="result-section">
+        <div class="card-header">
+            <i class="fas fa-pen-alt me-2 text-primary"></i> Student Marks Entry
+            <span class="badge bg-secondary float-end">Only your assigned subjects</span>
+        </div>
+        <div class="card-body">
+            <!-- Filter Section -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">📚 Class</label>
+                    <select id="classSelect" class="form-select" required>
+                        <option value="">-- Select Class --</option>
+                        <?php foreach ($available_classes as $cid => $cname): ?>
+                            <option value="<?= $cid ?>"><?= htmlspecialchars($cname) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">👥 Group</label>
+                    <select id="groupSelect" class="form-select" required disabled>
+                        <option value="">First select class</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">📖 Subject (Assigned)</label>
+                    <select id="subjectSelect" class="form-select" required disabled>
+                        <option value="">Select class & group first</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">📝 Exam Type</label>
+                    <select id="examTypeSelect" class="form-select" required disabled>
+                        <option value="">Select subject first</option>
+                        <option value="weekly_test">Weekly Test</option>
+                        <option value="monthly_test">Monthly Test</option>
+                    </select>
+                </div>
             </div>
-            
-            <?php if(mysqli_num_rows($routine_result) > 0): ?>
-                <div class="table-responsive">
-                    <table class="routine-table">
-                        <thead>
-                            <tr>
-                                <th>Day</th>
-                                <th>Class</th>
-                                <th>Subject</th>
-                                <th>Time</th>
-                                <th>Room</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php 
-                            $current_day = '';
-                            while($routine = mysqli_fetch_assoc($routine_result)): 
-                                $day = htmlspecialchars($routine['day']);
-                            ?>
+
+           
+
+            <!-- Students Marks Table -->
+            <div id="tableContainer" style="display: none;">
+                <form method="POST" id="bulkResultForm">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped" id="studentsMarksTable">
+                            <thead class="table-light">
                                 <tr>
-                                    <td>
-                                        <?php if($day != $current_day): ?>
-                                            <span class="day-badge"><?php echo $day; ?></span>
-                                            <?php $current_day = $day; ?>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td><?php echo htmlspecialchars($routine['class_name']); ?></td>
-                                    <td>
-                                        <strong><?php echo htmlspecialchars($routine['subject_name']); ?></strong>
-                                        <br><small class="text-muted"><?php echo htmlspecialchars($routine['subject_code']); ?></small>
-                                    </td>
-                                    <td><?php echo htmlspecialchars(date('h:i A', strtotime($routine['start_time'])) . ' - ' . date('h:i A', strtotime($routine['end_time']))); ?></td>
-                                    <td><?php echo htmlspecialchars($routine['room'] ?? 'TBA'); ?></td>
+                                    <th>Student</th>
+                                    <th>Class</th>
+                                    <th>Group</th>
+                                    <th>Exam Name</th>
+                                    <th>Subject</th>
+                                    <th>Marks (0-100)</th>
+                                    <th>Action</th>
                                 </tr>
-                            <?php endwhile; ?>
-                        </tbody>
-                    </table>
-                </div>
-            <?php else: ?>
-                <p class="text-muted text-center py-4">No class routine found.</p>
-            <?php endif; ?>
-        </div>
-
-        <!-- Result Management Section -->
-        <div class="card" id="results">
-            <div class="card-header">
-                <h5><i class="fas fa-chart-bar"></i> Result Management</h5>
-                <button class="btn btn-success btn-sm" onclick="showResultForm()">
-                    <i class="fas fa-plus me-1"></i> Add New Result
-                </button>
-            </div>
-
-            <!-- Add Result Form (Hidden by default) -->
-            <div id="resultForm" style="display: none;" class="form-section">
-                <h6 class="mb-3">Add/Update Student Result</h6>
-                <form method="POST" action="">
-                    <div class="row">
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Select Student</label>
-                            <select name="student_id" class="form-select" required>
-                                <option value="">Choose Student</option>
-                                <?php 
-                                mysqli_data_seek($students_result, 0);
-                                while($student = mysqli_fetch_assoc($students_result)): 
-                                ?>
-                                    <option value="<?php echo $student['id']; ?>">
-                                        <?php echo $student['roll_number'] . ' - ' . $student['first_name'] . ' ' . $student['last_name'] . ' (' . $student['class_name'] . ')'; ?>
-                                    </option>
-                                <?php endwhile; ?>
-                            </select>
-                        </div>
-                        <div class="col-md-2 mb-3">
-                            <label class="form-label">Exam Type</label>
-                            <select name="exam_id" class="form-select" required>
-                                <option value="">Select Exam</option>
-                                <?php 
-                                $exams_query = "SELECT * FROM exams ORDER BY exam_type";
-                                $exams_result = mysqli_query($conn, $exams_query);
-                                while($exam = mysqli_fetch_assoc($exams_result)): 
-                                ?>
-                                    <option value="<?php echo $exam['id']; ?>">
-                                        <?php echo ucfirst($exam['exam_type']) . ' - ' . $exam['exam_name']; ?>
-                                    </option>
-                                <?php endwhile; ?>
-                            </select>
-                        </div>
-                        <div class="col-md-2 mb-3">
-                            <label class="form-label">Subject</label>
-                            <select name="subject_id" class="form-select" required>
-                                <option value="">Select Subject</option>
-                                <?php 
-                                mysqli_data_seek($subjects_result, 0);
-                                while($subject = mysqli_fetch_assoc($subjects_result)): 
-                                ?>
-                                    <option value="<?php echo $subject['id']; ?>">
-                                        <?php echo $subject['subject_name'] . ' (' . $subject['class_name'] . ')'; ?>
-                                    </option>
-                                <?php endwhile; ?>
-                            </select>
-                        </div>
-                        <div class="col-md-1 mb-3">
-                            <label class="form-label">Marks</label>
-                            <input type="number" name="marks_obtained" class="form-control" step="0.01" min="0" max="100" required>
-                        </div>
-                        <div class="col-md-1 mb-3">
-                            <label class="form-label">Grade</label>
-                            <select name="grade" class="form-select" required>
-                                <option value="A+">A+</option>
-                                <option value="A">A</option>
-                                <option value="A-">A-</option>
-                                <option value="B">B</option>
-                                <option value="C">C</option>
-                                <option value="D">D</option>
-                                <option value="F">F</option>
-                            </select>
-                        </div>
-                        <div class="col-md-2 mb-3">
-                            <label class="form-label">Remarks</label>
-                            <input type="text" name="remarks" class="form-control" placeholder="Optional">
-                        </div>
-                        <div class="col-md-1 mb-3 d-flex align-items-end">
-                            <button type="submit" name="add_result" class="btn btn-primary w-100">
-                                <i class="fas fa-save me-1"></i> Save
-                            </button>
-                        </div>
+                            </thead>
+                            <tbody id="marksTableBody">
+                                <!-- Auto-populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="submit" class="btn btn-primary rounded-pill" id="saveBulkBtn">
+                            <i class="fas fa-save me-1"></i> Save All Marks
+                        </button>
+                        <button type="reset" class="btn btn-secondary rounded-pill">
+                            <i class="fas fa-redo me-1"></i> Clear All
+                        </button>
                     </div>
                 </form>
             </div>
 
-            <!-- Recent Results Table -->
-            <h6 class="mb-3">Recent Results</h6>
+            <!-- Empty State -->
+            <div id="emptyState" class="text-center text-muted py-5">
+                <i class="fas fa-inbox" style="font-size: 3rem; opacity: 0.3;"></i>
+                <p class="mt-3">Select filters to view and enter student marks</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- === LIST OF EXISTING RESULTS (Only Teacher's Subjects) === -->
+    <div class="card" id="my-results">
+        <div class="card-header">
+            <i class="fas fa-table me-2 text-primary"></i> Recently Added Marks
+        </div>
+        <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table result-table">
+                <table class="table table-hover mb-0">
                     <thead>
-                        <tr>
-                            <th>Student</th>
-                            <th>Class</th>
-                            <th>Exam</th>
-                            <th>Subject</th>
-                            <th>Marks</th>
-                            <th>Grade</th>
-                            <th>Status</th>
-                            <th>Action</th>
-                        </tr>
+                        <tr><th>Student</th><th>Class / Group</th><th>Subject</th><th>Marks</th><th>Status</th><th>Date</th><th></th></tr>
                     </thead>
                     <tbody>
-                        <?php if(mysqli_num_rows($recent_results_result) > 0): ?>
-                            <?php while($result = mysqli_fetch_assoc($recent_results_result)): ?>
+                        <?php if (count($recent_results) > 0): ?>
+                            <?php foreach ($recent_results as $res): ?>
                                 <tr>
-                                    <td>
-                                        <strong><?php echo $result['first_name'] . ' ' . $result['last_name']; ?></strong>
-                                        <br><small class="text-muted">Roll: <?php echo $result['roll_number']; ?></small>
-                                    </td>
-                                    <td><?php echo $result['class_name']; ?></td>
-                                    <td>
-                                        <strong><?php echo ucfirst($result['exam_type']); ?></strong>
-                                        <br><small><?php echo $result['exam_name']; ?></small>
-                                    </td>
-                                    <td><?php echo $result['subject_name']; ?></td>
-                                    <td><strong><?php echo $result['marks_obtained']; ?></strong></td>
-                                    <td><strong><?php echo $result['grade']; ?></strong></td>
-                                    <td>
-                                        <span class="badge-<?php echo $result['status']; ?>">
-                                            <?php echo ucfirst($result['status']); ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-warning btn-sm" onclick="editResult(<?php echo $result['id']; ?>)">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                    </td>
+                                    <td><strong><?= htmlspecialchars($res['student_name']) ?></strong><br><small class="text-muted">Roll: <?= $res['roll_number'] ?></small></td>
+                                    <td><?= htmlspecialchars($res['class_name']) ?> / <?= htmlspecialchars($res['group_name']) ?></td>
+                                    <td><?= htmlspecialchars($res['subject_name']) ?></td>
+                                    <td><span class="fw-bold"><?= $res['marks'] ?></span> / 100</td>
+                                    <td><span class="badge <?= ($res['marks'] >= 40) ? 'badge-pass' : 'badge-fail' ?> px-3 py-2"><?= ($res['marks'] >= 40) ? 'Pass' : 'Fail' ?></span></td>
+                                    <td><?= date('d-m-Y', strtotime($res['updated_at'])) ?></td>
+                                    <td><button class="btn btn-sm btn-outline-secondary rounded-pill" onclick="loadForEdit(<?= $res['student_id'] ?>, <?= $res['subject_id'] ?>, <?= $res['marks'] ?>)"><i class="fas fa-pen"></i> Edit</button></td>
                                 </tr>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         <?php else: ?>
-                            <tr>
-                                <td colspan="8" class="text-center py-4 text-muted">
-                                    No results added yet.
-                                </td>
-                            </tr>
+                            <tr><td colspan="7" class="text-center text-muted py-4">No results added yet. Use the form above to add marks.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
+</div>
 
-    <script>
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('active');
+<script>
+// ------------------------------------------------------------------
+// Dynamic filtering & table population
+// ------------------------------------------------------------------
+const allowedCombinations = <?php 
+    $arr = [];
+    foreach ($allowed_combinations as $ac) {
+        $arr[] = [
+            'class_id' => $ac['class_id'],
+            'subject_id' => $ac['subject_id'],
+            'subject_name' => $ac['subject_name'],
+            'class_name' => $ac['class_name']
+        ];
+    }
+    echo json_encode($arr);
+?>;
+
+const studentsData = <?php echo json_encode($students_list); ?>;
+
+// Get DOM elements
+const classSelect = document.getElementById('classSelect');
+const groupSelect = document.getElementById('groupSelect');
+const subjectSelect = document.getElementById('subjectSelect');
+const examTypeSelect = document.getElementById('examTypeSelect');
+const tableContainer = document.getElementById('tableContainer');
+const emptyState = document.getElementById('emptyState');
+const marksTableBody = document.getElementById('marksTableBody');
+const bulkResultForm = document.getElementById('bulkResultForm');
+const saveBulkBtn = document.getElementById('saveBulkBtn');
+
+// Store current selections
+let currentClassId = null;
+let currentGroupId = null;
+let currentSubjectId = null;
+let currentExamType = null;
+let currentFilteredStudents = [];
+
+// Helper: filter allowed groups for selected class
+function updateGroups() {
+    const classId = parseInt(classSelect.value);
+    if (!classId) {
+        groupSelect.disabled = true;
+        groupSelect.innerHTML = '<option value="">-- Select Group --</option>';
+        subjectSelect.disabled = true;
+        subjectSelect.innerHTML = '<option value="">Select class & group first</option>';
+        examTypeSelect.disabled = true;
+        examTypeSelect.value = '';
+        hideTable();
+        return;
+    }
+    currentClassId = classId;
+    // Get unique groups for this class from studentsData
+    const groupMap = {};
+    studentsData.forEach(s => {
+        if (s.class_id == classId) {
+            groupMap[s.group_id] = s.group_name;
         }
-
-        function showResultForm() {
-            var form = document.getElementById('resultForm');
-            if(form.style.display === 'none' || form.style.display === '') {
-                form.style.display = 'block';
-            } else {
-                form.style.display = 'none';
-            }
-        }
-
-        function editResult(resultId) {
-            // Redirect to edit page or show edit form
-            window.location.href = 'edit-result.php?id=' + resultId;
-        }
-
-        // Close sidebar when clicking outside on mobile
-        document.addEventListener('click', function(event) {
-            const sidebar = document.getElementById('sidebar');
-            const menuToggle = document.querySelector('.menu-toggle');
-            
-            if (window.innerWidth <= 992) {
-                if (!sidebar.contains(event.target) && !menuToggle.contains(event.target)) {
-                    sidebar.classList.remove('active');
-                }
-            }
-        });
-
-        // Smooth scroll for anchor links
-        document.querySelectorAll('.nav-item a').forEach(anchor => {
-            anchor.addEventListener('click', function(e) {
-                if(this.getAttribute('href').startsWith('#')) {
-                    e.preventDefault();
-                    const target = document.querySelector(this.getAttribute('href'));
-                    if(target) {
-                        target.scrollIntoView({ behavior: 'smooth' });
-                        if(window.innerWidth <= 992) {
-                            document.getElementById('sidebar').classList.remove('active');
-                        }
-                    }
-                }
-            });
-        });
-    </script>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    });
     
-    <script>
-        $(document).ready(function() {
-            $('.result-table').DataTable({
-                pageLength: 10,
-                ordering: true,
-                language: {
-                    search: "Search results:"
-                }
-            });
+    const groupIds = Object.keys(groupMap);
+    if (groupIds.length === 0) {
+        groupSelect.innerHTML = '<option value="">No groups available</option>';
+        groupSelect.disabled = true;
+        return;
+    }
+    groupSelect.disabled = false;
+    let options = '<option value="">-- Select Group --</option>';
+    groupIds.forEach(gid => {
+        options += `<option value="${gid}">${groupMap[gid]}</option>`;
+    });
+    groupSelect.innerHTML = options;
+    // Reset dependent fields
+    subjectSelect.disabled = true;
+    subjectSelect.innerHTML = '<option value="">Select group first</option>';
+    examTypeSelect.disabled = true;
+    examTypeSelect.value = '';
+    hideTable();
+}
+
+function updateSubjects() {
+    const classId = parseInt(classSelect.value);
+    const groupId = parseInt(groupSelect.value);
+    if (!classId || !groupId) {
+        subjectSelect.disabled = true;
+        subjectSelect.innerHTML = '<option value="">Select class & group</option>';
+        examTypeSelect.disabled = true;
+        hideTable();
+        return;
+    }
+    currentGroupId = groupId;
+    // Filter subjects for this class from allowedCombinations
+    const subjects = allowedCombinations.filter(c => c.class_id == classId);
+    if (subjects.length === 0) {
+        subjectSelect.innerHTML = '<option value="">No subjects assigned for this class</option>';
+        subjectSelect.disabled = true;
+        return;
+    }
+    subjectSelect.disabled = false;
+    let options = '<option value="">-- Select Subject --</option>';
+    subjects.forEach(subj => {
+        options += `<option value="${subj.subject_id}">${subj.subject_name}</option>`;
+    });
+    subjectSelect.innerHTML = options;
+    // Reset exam type
+    examTypeSelect.disabled = true;
+    examTypeSelect.value = '';
+    hideTable();
+    currentSubjectId = null;
+}
+
+function updateExamType() {
+    const subjectId = parseInt(subjectSelect.value);
+    if (!subjectId) {
+        examTypeSelect.disabled = true;
+        examTypeSelect.value = '';
+        hideTable();
+        return;
+    }
+    currentSubjectId = subjectId;
+    examTypeSelect.disabled = false;
+}
+
+function updateTable() {
+    const classId = parseInt(classSelect.value);
+    const groupId = parseInt(groupSelect.value);
+    const subjectId = parseInt(subjectSelect.value);
+    const examType = examTypeSelect.value;
+
+    if (!classId || !groupId || !subjectId || !examType) {
+        hideTable();
+        return;
+    }
+
+    currentExamType = examType;
+    
+    // Filter students for this class + group
+    currentFilteredStudents = studentsData.filter(s => 
+        s.class_id == classId && s.group_id == groupId
+    );
+
+    if (currentFilteredStudents.length === 0) {
+        hideTable();
+        return;
+    }
+
+    // Populate table
+    populateMarksTable();
+    showTable();
+}
+
+function populateMarksTable() {
+    const classId = parseInt(classSelect.value);
+    const groupId = parseInt(groupSelect.value);
+    const subjectId = parseInt(subjectSelect.value);
+    const examType = examTypeSelect.value;
+
+    // Get subject and class names
+    const subject = allowedCombinations.find(c => c.subject_id == subjectId);
+    const subjectName = subject ? subject.subject_name : '';
+
+    let html = '';
+    currentFilteredStudents.forEach((student, index) => {
+        const rowId = `row_${student.id}_${subjectId}`;
+        html += `
+            <tr>
+                <td>
+                    <strong>${escapeHtml(student.student_name)}</strong>
+                    <br><small class="text-muted">Roll: ${student.roll_number}</small>
+                </td>
+                <td>${escapeHtml(student.class_name)}</td>
+                <td>${escapeHtml(student.group_name)}</td>
+                <td>
+                    <select name="exam_type[${student.id}]" class="form-select form-select-sm">
+                        <option value="weekly_test" ${examType === 'weekly_test' ? 'selected' : ''}>Weekly Test</option>
+                        <option value="monthly_test" ${examType === 'monthly_test' ? 'selected' : ''}>Monthly Test</option>
+                    </select>
+                </td>
+                <td>${escapeHtml(subjectName)}</td>
+                <td>
+                    <input type="number" min="0" max="100" step="any" 
+                           name="marks[${student.id}]" 
+                           class="form-control form-control-sm marks-input"
+                           placeholder="0" 
+                           data-student-id="${student.id}"
+                           data-subject-id="${subjectId}">
+                </td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-outline-danger rounded-pill" 
+                            onclick="clearRow(this)">
+                        <i class="fas fa-trash"></i> Clear
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    marksTableBody.innerHTML = html;
+}
+
+function showTable() {
+    tableContainer.style.display = 'block';
+    emptyState.style.display = 'none';
+}
+
+function hideTable() {
+    tableContainer.style.display = 'none';
+    emptyState.style.display = 'block';
+    marksTableBody.innerHTML = '';
+}
+
+function clearRow(btn) {
+    const row = btn.closest('tr');
+    const marksInput = row.querySelector('.marks-input');
+    marksInput.value = '';
+    marksInput.focus();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Event Listeners
+classSelect.addEventListener('change', () => {
+    updateGroups();
+});
+
+groupSelect.addEventListener('change', () => {
+    updateSubjects();
+});
+
+subjectSelect.addEventListener('change', () => {
+    updateExamType();
+});
+
+examTypeSelect.addEventListener('change', () => {
+    updateTable();
+});
+
+// Handle bulk form submission
+bulkResultForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(bulkResultForm);
+    const classId = parseInt(classSelect.value);
+    const groupId = parseInt(groupSelect.value);
+    const subjectId = parseInt(subjectSelect.value);
+    const examType = examTypeSelect.value;
+
+    // Collect all marks data
+    const marksData = [];
+    currentFilteredStudents.forEach(student => {
+        const marksInput = document.querySelector(`input[name="marks[${student.id}]"]`);
+        const examTypeSelect = document.querySelector(`select[name="exam_type[${student.id}]"]`);
+        
+        if (marksInput && marksInput.value !== '') {
+            const marks = parseFloat(marksInput.value);
+            if (marks >= 0 && marks <= 100) {
+                marksData.push({
+                    student_id: student.id,
+                    subject_id: subjectId,
+                    exam_type: examTypeSelect ? examTypeSelect.value : examType,
+                    marks: marks
+                });
+            }
+        }
+    });
+
+    if (marksData.length === 0) {
+        alert('Please enter marks for at least one student.');
+        return;
+    }
+
+    // Send to server
+    try {
+        const response = await fetch(window.location.pathname + '?save_bulk_marks=1', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ marks: marksData })
         });
-    </script>
+
+        const result = await response.json();
+        if (result.success) {
+            alert('Marks saved successfully!');
+            bulkResultForm.reset();
+            hideTable();
+            // Reload page to show in recent results
+            setTimeout(() => location.reload(), 500);
+        } else {
+            alert('Error: ' + (result.message || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('An error occurred while saving marks.');
+    }
+});
+
+// Initial state
+hideTable();
+
+// Sidebar toggle for mobile
+document.getElementById('menuToggle')?.addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('show');
+});
+</script>
+
+<?php
+// ----- AJAX handler for fetching existing marks -----
+if (isset($_GET['ajax_get_mark']) && isset($_GET['student_id']) && isset($_GET['subject_id'])) {
+    header('Content-Type: application/json');
+    $student_id = intval($_GET['student_id']);
+    $subject_id = intval($_GET['subject_id']);
+    // Security: only if teacher is allowed for this subject
+    $check = mysqli_query($conn, "SELECT 1 FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id");
+    if (mysqli_num_rows($check) == 0) {
+        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+        exit;
+    }
+    $mark_sql = "SELECT marks FROM results WHERE student_id = $student_id AND subject_id = $subject_id";
+    $mark_res = mysqli_query($conn, $mark_sql);
+    if ($row = mysqli_fetch_assoc($mark_res)) {
+        echo json_encode(['success' => true, 'marks' => $row['marks']]);
+    } else {
+        echo json_encode(['success' => true, 'marks' => null]);
+    }
+    exit;
+}
+?>
+
+<script>
+// Override the AJAX call to use the same file with a GET parameter
+const originalFetch = window.fetch;
+window.fetch = function(url, options) {
+    if (url.toString().includes('ajax_get_mark.php')) {
+        const urlParams = new URLSearchParams(url.split('?')[1]);
+        const newUrl = window.location.pathname + '?ajax_get_mark=1&student_id=' + urlParams.get('student_id') + '&subject_id=' + urlParams.get('subject_id');
+        return originalFetch(newUrl, options);
+    }
+    return originalFetch(url, options);
+};
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

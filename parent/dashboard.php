@@ -2,6 +2,7 @@
 session_start();
 require_once '../includes/db.php';
 require_once '../includes/parent_helpers.php';
+require_once '../includes/payment_helpers.php';
 
 // Check if parent is logged in
 if(!isset($_SESSION['parent_id'])) {
@@ -29,20 +30,14 @@ if (empty($student_ids) && !empty($student_mobile)) {
 
 $student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
 
-// Get attendance count for this month
-$attendance_query = "SELECT COUNT(*) as total_present FROM attendance 
-                     WHERE YEAR(date) = YEAR(NOW()) 
-                     AND MONTH(date) = MONTH(NOW())
-                     AND student_id IN ($student_ids_list)
-                     AND status = 'Present'";
-$attendance_result = mysqli_query($conn, $attendance_query);
-$attendance = mysqli_fetch_assoc($attendance_result);
+// Get pending fees for next 2 months only
+$upcoming_fees = getUpcomingFeesForStudent($conn, $student_id, 2);
 
-// Get pending fees for this student
-$fees_query = "SELECT SUM(expected_amount - paid_amount) as total_pending FROM fee_collections 
-               WHERE student_id IN ($student_ids_list) AND payment_status != 'paid'";
-$fees_result = mysqli_query($conn, $fees_query);
-$fees = mysqli_fetch_assoc($fees_result);
+// Calculate total pending fees for next 2 months
+$total_pending = 0;
+foreach ($upcoming_fees as $fee) {
+    $total_pending += (float)$fee['due_amount'];
+}
 ?>
 
 <!DOCTYPE html>
@@ -433,24 +428,23 @@ $fees = mysqli_fetch_assoc($fees_result);
             <!-- Stats Grid -->
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-icon blue"><i class="fas fa-calendar-check"></i></div>
-                    <div class="stat-value"><?php echo $attendance['total_present'] ?? 0; ?></div>
-                    <div class="stat-label">This Month's Attendance</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-icon green"><i class="fas fa-award"></i></div>
-                    <div class="stat-value">--</div>
-                    <div class="stat-label">Latest Grade</div>
-                </div>
-                
-                <div class="stat-card">
                     <div class="stat-icon orange"><i class="fas fa-money-bill"></i></div>
-                    <div class="stat-value">৳<?php echo number_format($fees['total_pending'] ?? 0, 2); ?></div>
+                    <div class="stat-value">৳<?php echo number_format($total_pending, 2); ?></div>
                     <div class="stat-label">Pending Fees</div>
+                    <div style="margin-top: 15px; font-size: 12px;">
+                        <div style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
+                            <?php foreach ($upcoming_fees as $fee): ?>
+                            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
+                                <span style="color: #666;"><?php echo htmlspecialchars($fee['fee_month']); ?></span>
+                                <strong style="color: #f44336;">৳<?php echo number_format($fee['due_amount'], 2); ?></strong>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; text-align: center;">
+                        <small style="color: #999;">Next 2 Months</small>
+                    </div>
                 </div>
-                
-
             </div>
 
             <!-- Quick Links -->

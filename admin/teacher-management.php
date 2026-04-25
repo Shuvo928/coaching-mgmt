@@ -45,6 +45,8 @@ $teachers = mysqli_query($conn, $query);
 
 // Get subjects for assignment
 $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_name");
+// Get classes for teacher assignment
+$classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name");
 ?>
 
 <!DOCTYPE html>
@@ -505,16 +507,10 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                     <div class="col-md-6">
                         <div class="search-box">
                             <i class="fas fa-search"></i>
-                            <input type="text" id="searchInput" class="form-control" placeholder="Search teachers by name, ID, phone...">
+                            <input type="text" id="searchInput" class="form-control" placeholder="Search teachers by name">
                         </div>
                     </div>
-                    <div class="col-md-3">
-                        <select class="form-select" id="statusFilter">
-                            <option value="">All Status</option>
-                            <option value="1">Active</option>
-                            <option value="0">Inactive</option>
-                        </select>
-                    </div>
+                    
                 </div>
 
                 <!-- Teachers Table -->
@@ -526,6 +522,7 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                                 <th>Photo</th>
                                 <th>Name</th>
                                 <th>Teacher ID</th>
+                                <th>Class</th>
                                 <th>Qualification</th>
                                 <th>Phone</th>
                                 <th>Status</th>
@@ -550,6 +547,7 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                                 </td>
                                 <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
                                 <td><span class="badge bg-light text-dark"><?php echo $row['teacher_id'] ?? 'TCH' . $row['id']; ?></span></td>
+                                <td><?php echo htmlspecialchars($row['class_name'] ?? '-'); ?></td>
                                 <td><?php echo substr($row['qualification'], 0, 30) . '...'; ?></td>
                                 <td><?php echo $row['phone']; ?></td>
                                 <td>
@@ -558,13 +556,13 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                                     </span>
                                 </td>
                                 <td>
-                                    <a href="javascript:void(0)" onclick="viewTeacher(<?php echo $row['id']; ?>)" 
-                                       class="action-btn btn-view" title="View">
-                                        <i class="fas fa-eye"></i>
-                                    </a>
                                     <a href="javascript:void(0)" onclick="editTeacher(<?php echo $row['id']; ?>)" 
                                        class="action-btn btn-edit" title="Edit">
                                         <i class="fas fa-edit"></i>
+                                    </a>
+                                    <a href="assign-subjects.php?teacher_id=<?php echo $row['id']; ?>" 
+                                       class="action-btn btn-primary" title="Assign Subjects" style="background: #4CAF50; color: white; padding: 6px 10px; border-radius: 5px; text-decoration: none;">
+                                        <i class="fas fa-book"></i>
                                     </a>
                                     <a href="?delete=<?php echo $row['id']; ?>" 
                                        class="action-btn btn-delete" title="Delete"
@@ -629,8 +627,12 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Class *</label>
-                            <input type="text" class="form-control" name="class_name" id="class_name" 
-                                   placeholder="e.g., Class 9, Class 10, SSC Batch" required>
+                            <select class="form-select" name="class_id" id="class_id" required>
+                                <option value="">Select Class</option>
+                                <?php while($class = mysqli_fetch_assoc($classes)): ?>
+                                    <option value="<?php echo $class['id']; ?>"><?php echo htmlspecialchars($class['class_name']); ?></option>
+                                <?php endwhile; ?>
+                            </select>
                         </div>
 
                         <div class="mb-3">
@@ -718,11 +720,11 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
             $('#statusFilter').on('change', function() {
                 var status = this.value;
                 if(status === '1') {
-                    table.column(6).search('Active').draw();
+                    table.column(7).search('Active').draw();
                 } else if(status === '0') {
-                    table.column(6).search('Inactive').draw();
+                    table.column(7).search('Inactive').draw();
                 } else {
-                    table.column(6).search('').draw();
+                    table.column(7).search('').draw();
                 }
             });
 
@@ -763,6 +765,7 @@ $subjects = mysqli_query($conn, "SELECT s.* FROM subjects s ORDER BY s.subject_n
                     document.getElementById('joining_date').value = data.joining_date;
                     document.getElementById('address').value = data.address;
                     document.getElementById('username').value = data.username;
+                    document.getElementById('class_id').value = data.class_id || '';
                     document.getElementById('password').required = false;
                     document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Teacher';
                     

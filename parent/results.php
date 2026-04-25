@@ -44,7 +44,7 @@ if (!empty($student_ids)) {
 
 // Get all results for this student
 // Build column list based on what exists
-$resultsCols = "r.id, s.subject_name";
+$resultsCols = "r.id, s.subject_name, r.test_type, r.created_at as test_date";
 
 if ($resultsMarksColumns) {
     $resultsCols .= ", r.marks_obtained, r.total_marks";
@@ -58,20 +58,19 @@ if ($resultsPercentageExists) {
     $resultsCols .= ", NULL as percentage";
 }
 
-if ($examTypesTableExists) {
-    $resultsCols .= ", e.exam_name as exam_type";
-    $examJoin = "LEFT JOIN exam_types e ON r.exam_type_id = e.id";
-} else {
-    $resultsCols .= ", NULL as exam_type";
-    $examJoin = "";
-}
+// Add test type name
+$resultsCols .= ", CASE 
+    WHEN r.test_type = 'weekly_test' THEN 'Weekly Test'
+    WHEN r.test_type = 'monthly_test' THEN 'Monthly Test'
+    WHEN r.test_type = 'exam' THEN 'Exam'
+    ELSE 'Test'
+END AS test_name";
 
 $results_query = "SELECT $resultsCols
                   FROM results r
                   LEFT JOIN subjects s ON r.subject_id = s.id
-                  $examJoin
                   WHERE r.student_id IN ($student_ids_list)
-                  ORDER BY r.id DESC";
+                  ORDER BY r.created_at DESC";
 
 $results_result = mysqli_query($conn, $results_query);
 
@@ -526,8 +525,8 @@ $stats = mysqli_fetch_assoc($stats_result);
                             ?>
                             <tr>
                                 <td><span class="subject-name"><?php echo htmlspecialchars($row['subject_name'] ?? 'N/A'); ?></span></td>
-                                <td><span class="exam-type"><?php echo htmlspecialchars($row['exam_type'] ?? 'Regular'); ?></span></td>
-                                <td><?php echo isset($row['exam_date']) ? date('d M, Y', strtotime($row['exam_date'])) : 'N/A'; ?></td>
+                                <td><span class="exam-type"><?php echo htmlspecialchars($row['test_name'] ?? 'Test'); ?></span></td>
+                                <td><?php echo isset($row['test_date']) ? date('d M, Y', strtotime($row['test_date'])) : 'N/A'; ?></td>
                                 <td class="marks-badge">
                                     <?php 
                                         if ($resultsMarksColumns && isset($row['marks_obtained']) && isset($row['total_marks'])) {

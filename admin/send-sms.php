@@ -6,40 +6,36 @@ header('Content-Type: application/json');
 
 $response = ['success' => false, 'message' => '', 'count' => 0];
 
-if(isset($_POST['type'])) {
-    $type = $_POST['type'];
-    $message = mysqli_real_escape_string($conn, $_POST['message']);
+// ==============================================
+// 🔧 SMS API CONFIGURATION - UPDATE THESE VALUES
+// ==============================================
+
+// Choose your SMS provider:
+// 1. BulkSMSBD  - https://bulksmsbd.net
+// 2. GreenWeb   - https://greenweb.com.bd
+// 3. SSL Wireless - https://sslwireless.com
+// 4. ADN Telecom - https://adntelecom.com
+
+$api_config = [
+    // Your SMS Provider API Key
+    'api_key' => 'K6uCeGByYLJRtIIZRzQ',  // BulkSMSBD API Key
     
-    // ==============================================
-    // 🔧 SMS API CONFIGURATION - UPDATE THESE VALUES
-    // ==============================================
+    // Sender ID / Phone Number (Your registered phone with SMS provider)
+    'sender_id' => '01305421948',     // Your registered phone number
     
-    // Choose your SMS provider:
-    // 1. BulkSMSBD  - https://bulksmsbd.net
-    // 2. GreenWeb   - https://greenweb.com.bd
-    // 3. SSL Wireless - https://sslwireless.com
-    // 4. ADN Telecom - https://adntelecom.com
+    // API URL of your SMS provider
+    'api_url' => 'http://bulksmsbd.net/api/smsapi',  // Replace with provider URL
     
-    $api_config = [
-        // Your SMS Provider API Key
-        'api_key' => 'K6uCeGByYLJRtIIZRzQ',  // BulkSMSBD API Key
-        
-        // Sender ID / Phone Number (Your registered phone with SMS provider)
-        'sender_id' => '01305421948',     // Your registered phone number
-        
-        // API URL of your SMS provider
-        'api_url' => 'http://bulksmsbd.net/api/smsapi',  // Replace with provider URL
-        
-        // Additional provider-specific parameters
-        'provider' => 'bulksmsbd',           // Options: bulksmsbd, greenweb, ssl, adn
-        'api_type' => 'json'                  // Response format: json or xml
-    ];
-    
-    // ==============================================
-    // Function to send SMS via different providers
-    // ==============================================
-    function sendViaAPI($phone, $message) {
-        global $api_config, $conn;
+    // Additional provider-specific parameters
+    'provider' => 'bulksmsbd',           // Options: bulksmsbd, greenweb, ssl, adn
+    'api_type' => 'json'                  // Response format: json or xml
+];
+
+// ==============================================
+// Function to send SMS via different providers
+// ==============================================
+function sendViaAPI($phone, $message) {
+    global $api_config, $conn;
         
         $status = 'Failed';
         $api_response = '';

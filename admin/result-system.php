@@ -396,7 +396,7 @@ $session = $current_year . '-' . ($current_year + 1);
                     <h4>Result Management System</h4>
                 </div>
                 <div class="user-info">
-                    <span class="badge bg-success me-3">Session: <?php echo $session; ?></span>
+                    
                     <i class="fas fa-bell text-muted"></i>
                     <i class="fas fa-envelope text-muted"></i>
                     <div class="dropdown">
@@ -404,127 +404,33 @@ $session = $current_year . '-' . ($current_year + 1);
                             <img src="https://ui-avatars.com/api/?name=<?php echo $_SESSION['display_name']; ?>&background=2a5298&color=fff" alt="User" style="width: 35px; height: 35px; border-radius: 50%;">
                         </button>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
+                            
                             <li><a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
                         </ul>
                     </div>
                 </div>
             </div>
 
-            <!-- Bangladesh Grading System Card -->
-            <div class="grade-card">
-                <h5><i class="fas fa-star me-2"></i>Bangladesh National Curriculum Grading System (Class 6-10)</h5>
-                <div class="grade-table">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>Marks Range</th>
-                                <th>Letter Grade</th>
-                                <th>Grade Point</th>
-                                <th>Remarks</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td>80-100</td><td><strong>A+</strong></td><td>5.00</td><td>Excellent</td></tr>
-                            <tr><td>70-79</td><td><strong>A</strong></td><td>4.00</td><td>Good</td></tr>
-                            <tr><td>60-69</td><td><strong>A-</strong></td><td>3.50</td><td>Satisfactory</td></tr>
-                            <tr><td>50-59</td><td><strong>B</strong></td><td>3.00</td><td>Average</td></tr>
-                            <tr><td>40-49</td><td><strong>C</strong></td><td>2.00</td><td>Pass</td></tr>
-                            <tr><td>33-39</td><td><strong>D</strong></td><td>1.00</td><td>Marginal</td></tr>
-                            <tr><td>0-32</td><td><strong>F</strong></td><td>0.00</td><td>Fail</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            
 
             <!-- Quick Actions -->
             <div class="row mb-4">
                 <div class="col-md-12">
                     <ul class="nav nav-pills mb-3" id="pills-tab" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active" id="pills-entry-tab" data-bs-toggle="pill" data-bs-target="#pills-entry" type="button">
-                                <i class="fas fa-pen me-2"></i>Marks Entry
-                            </button>
-                        </li>
+                        
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="pills-results-tab" data-bs-toggle="pill" data-bs-target="#pills-results" type="button">
                                 <i class="fas fa-file-alt me-2"></i>View Results
                             </button>
                         </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="pills-grade-sheet-tab" data-bs-toggle="pill" data-bs-target="#pills-grade-sheet" type="button">
-                                <i class="fas fa-table me-2"></i>Grade Sheet
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="pills-tabulation-tab" data-bs-toggle="pill" data-bs-target="#pills-tabulation" type="button">
-                                <i class="fas fa-chart-line me-2"></i>Tabulation Sheet
-                            </button>
-                        </li>
+                       
+                       
                     </ul>
                 </div>
             </div>
 
             <div class="tab-content" id="pills-tabContent">
-                <!-- Marks Entry Tab -->
-                <div class="tab-pane fade show active" id="pills-entry" role="tabpanel">
-                    <div class="content-card">
-                        <div class="card-header">
-                            <h5><i class="fas fa-pen me-2"></i>Marks Entry Form</h5>
-                        </div>
-
-                        <!-- Selection Form -->
-                        <div class="filter-section">
-                            <div class="row g-3">
-                                <div class="col-md-3">
-                                    <label class="form-label">Select Class</label>
-                                    <select class="form-select" id="entry_class" required>
-                                        <option value="">Choose Class</option>
-                                        <?php while($class = mysqli_fetch_assoc($classes)): ?>
-                                            <option value="<?php echo $class['id']; ?>">
-                                                <?php echo $class['class_name']; ?>
-                                            </option>
-                                        <?php endwhile; ?>
-                                    </select>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Exam Type</label>
-                                    <select class="form-select" id="entry_exam" required>
-                                        <option value="">Choose Exam</option>
-                                        <?php 
-                                        mysqli_data_seek($exams, 0);
-                                        while($exam = mysqli_fetch_assoc($exams)): 
-                                        ?>
-                                            <option value="<?php echo $exam['id']; ?>">
-                                                <?php echo $exam['exam_name']; ?>
-                                            </option>
-                                        <?php endwhile; ?>
-                                    </select>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Subject</label>
-                                    <select class="form-select" id="entry_subject" required>
-                                        <option value="">First select class</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">&nbsp;</label>
-                                    <button class="btn btn-action w-100" onclick="loadMarksEntry()">
-                                        <i class="fas fa-search me-2"></i>Load Students
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Marks Entry Table -->
-                        <div id="marks-entry-container">
-                            <div class="text-center py-5">
-                                <i class="fas fa-arrow-up fa-3x text-muted mb-3"></i>
-                                <p class="text-muted">Select class, exam and subject to enter marks</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+               
 
                 <!-- View Results Tab -->
                 <div class="tab-pane fade" id="pills-results" role="tabpanel">
@@ -557,20 +463,7 @@ $session = $current_year . '-' . ($current_year + 1);
                                         <?php endwhile; ?>
                                     </select>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Exam Type</label>
-                                    <select class="form-select" id="result_exam">
-                                        <option value="">All Exams</option>
-                                        <?php 
-                                        mysqli_data_seek($exams, 0);
-                                        while($exam = mysqli_fetch_assoc($exams)): 
-                                        ?>
-                                            <option value="<?php echo $exam['id']; ?>">
-                                                <?php echo $exam['exam_name']; ?>
-                                            </option>
-                                        <?php endwhile; ?>
-                                    </select>
-                                </div>
+                               
                                 <div class="col-md-4">
                                     <label class="form-label">&nbsp;</label>
                                     <button class="btn btn-action w-100" onclick="loadStudentResult()">
@@ -586,117 +479,9 @@ $session = $current_year . '-' . ($current_year + 1);
                     </div>
                 </div>
 
-                <!-- Grade Sheet Tab -->
-                <div class="tab-pane fade" id="pills-grade-sheet" role="tabpanel">
-                    <div class="content-card">
-                        <div class="card-header">
-                            <h5><i class="fas fa-table me-2"></i>Class Grade Sheet</h5>
-                        </div>
+                
 
-                        <div class="filter-section">
-                            <div class="row g-3">
-                                <div class="col-md-4">
-                                    <label class="form-label">Select Class</label>
-                                    <select class="form-select" id="grade_class">
-                                        <option value="">Choose Class</option>
-                                        <?php 
-                                        mysqli_data_seek($classes, 0);
-                                        while($class = mysqli_fetch_assoc($classes)): 
-                                        ?>
-                                            <option value="<?php echo $class['id']; ?>">
-                                                <?php echo $class['class_name']; ?>
-                                            </option>
-                                        <?php endwhile; ?>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Exam Type</label>
-                                    <select class="form-select" id="grade_exam">
-                                        <option value="">Choose Exam</option>
-                                        <?php 
-                                        mysqli_data_seek($exams, 0);
-                                        while($exam = mysqli_fetch_assoc($exams)): 
-                                        ?>
-                                            <option value="<?php echo $exam['id']; ?>">
-                                                <?php echo $exam['exam_name']; ?>
-                                            </option>
-                                        <?php endwhile; ?>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">&nbsp;</label>
-                                    <button class="btn btn-action w-100" onclick="loadGradeSheet()">
-                                        <i class="fas fa-table me-2"></i>Generate Grade Sheet
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="grade-sheet-container">
-                            <!-- Grade sheet will be displayed here -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Tabulation Sheet Tab -->
-                <div class="tab-pane fade" id="pills-tabulation" role="tabpanel">
-                    <div class="content-card">
-                        <div class="card-header">
-                            <h5><i class="fas fa-chart-line me-2"></i>Tabulation Sheet</h5>
-                            <div>
-                                <button class="btn btn-outline-primary btn-sm me-2" onclick="exportTabulation()">
-                                    <i class="fas fa-file-excel me-2"></i>Export
-                                </button>
-                                <button class="btn btn-outline-success btn-sm" onclick="printTabulation()">
-                                    <i class="fas fa-print me-2"></i>Print
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="filter-section">
-                            <div class="row g-3">
-                                <div class="col-md-4">
-                                    <label class="form-label">Select Class</label>
-                                    <select class="form-select" id="tab_class">
-                                        <option value="">Choose Class</option>
-                                        <?php 
-                                        mysqli_data_seek($classes, 0);
-                                        while($class = mysqli_fetch_assoc($classes)): 
-                                        ?>
-                                            <option value="<?php echo $class['id']; ?>">
-                                                <?php echo $class['class_name']; ?>
-                                            </option>
-                                        <?php endwhile; ?>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Exam Type</label>
-                                    <select class="form-select" id="tab_exam">
-                                        <option value="">Choose Exam</option>
-                                        <?php 
-                                        mysqli_data_seek($exams, 0);
-                                        while($exam = mysqli_fetch_assoc($exams)): 
-                                        ?>
-                                            <option value="<?php echo $exam['id']; ?>">
-                                                <?php echo $exam['exam_name']; ?>
-                                            </option>
-                                        <?php endwhile; ?>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">&nbsp;</label>
-                                    <button class="btn btn-action w-100" onclick="loadTabulationSheet()">
-                                        <i class="fas fa-chart-line me-2"></i>Generate Tabulation
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="tabulation-container">
-                            <!-- Tabulation sheet will be displayed here -->
-                        </div>
-                    </div>
-                </div>
+                       
             </div>
         </div>
     </div>

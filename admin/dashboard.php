@@ -32,15 +32,34 @@ $stats['total_teachers'] = mysqli_fetch_assoc($result)['total'];
 $result = mysqli_query($conn, "SELECT COUNT(*) as total FROM classes");
 $stats['total_classes'] = mysqli_fetch_assoc($result)['total'];
 
-// Pending Fees
-$result = mysqli_query($conn, "SELECT SUM(expected_amount - paid_amount) as total FROM fee_collections WHERE payment_status != 'paid'");
-$stats['pending_fees'] = mysqli_fetch_assoc($result)['total'] ?? 0;
+// Pending Fees = (Monthly Fees Due) + (Unpaid Admission Fees)
+// Get unpaid monthly fees
+$unpaid_monthly = mysqli_fetch_assoc(
+    mysqli_query($conn, "SELECT SUM(expected_amount - paid_amount) as total FROM fee_collections WHERE payment_status != 'paid'")
+)['total'] ?? 0;
 
-// Monthly Income (current month)
+// Get unpaid admission fees
+$unpaid_admission = mysqli_fetch_assoc(
+    mysqli_query($conn, "SELECT SUM(application_fee) as total FROM admission_applications WHERE status = 'Approved' AND (transaction_id = '' OR transaction_id IS NULL)")
+)['total'] ?? 0;
+
+$stats['pending_fees'] = $unpaid_monthly + $unpaid_admission;
+
+// Monthly Income = (Paid Admission Fees) + (Paid Monthly Fees) for current month
 $month = date('m');
 $year = date('Y');
-$result = mysqli_query($conn, "SELECT SUM(paid_amount) as total FROM fee_collections WHERE MONTH(payment_date) = $month AND YEAR(payment_date) = $year AND payment_status = 'paid'");
-$stats['monthly_income'] = mysqli_fetch_assoc($result)['total'] ?? 0;
+
+// Get paid monthly fees for current month
+$paid_monthly = mysqli_fetch_assoc(
+    mysqli_query($conn, "SELECT SUM(paid_amount) as total FROM fee_collections WHERE MONTH(payment_date) = $month AND YEAR(payment_date) = $year AND payment_status = 'paid'")
+)['total'] ?? 0;
+
+// Get paid admission fees for current month
+$paid_admission = mysqli_fetch_assoc(
+    mysqli_query($conn, "SELECT SUM(application_fee) as total FROM admission_applications WHERE MONTH(application_date) = $month AND YEAR(application_date) = $year AND application_fee > 0 AND transaction_id <> ''")
+)['total'] ?? 0;
+
+$stats['monthly_income'] = $paid_monthly + $paid_admission;
 
 // Today's Attendance
 $today = date('Y-m-d');
@@ -516,15 +535,7 @@ $admissions = mysqli_query($conn, $query);
                     </div>
                 </div>
 
-                <div class="stat-card">
-                    <div class="stat-info">
-                        <h3>৳<?php echo number_format($stats['pending_fees']); ?></h3>
-                        <p>Pending Fees</p>
-                    </div>
-                    <div class="stat-icon red">
-                        <i class="fas fa-clock"></i>
-                    </div>
-                </div>
+                
             </div>
 
             <!-- Charts Row -->
@@ -545,8 +556,8 @@ $admissions = mysqli_query($conn, $query);
                     <div class="chart-header">
                         <h5>Fee Collection</h5>
                         <select class="form-select form-select-sm w-auto">
-                            <option>2024</option>
-                            <option>2023</option>
+                            <option>2026</option>
+                            <option>2025</option>
                         </select>
                     </div>
                     <canvas id="feeChart" style="height: 300px;"></canvas>

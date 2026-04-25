@@ -14,13 +14,25 @@ $current_year = date('Y');
 // Get summary statistics
 $summary = [];
 
-// Total collection this month
+// Total collection this month (both monthly and admission fees)
 $monthly_query = "SELECT SUM(paid_amount) as total FROM fee_collections 
                   WHERE MONTH(payment_date) = $current_month 
                   AND YEAR(payment_date) = $current_year 
-                  AND payment_status = 'paid'";
+                  AND payment_status = 'paid'
+                  UNION ALL
+                  SELECT SUM(CAST(application_fee AS DECIMAL(10,2))) as total FROM admission_applications
+                  WHERE MONTH(application_date) = $current_month
+                  AND YEAR(application_date) = $current_year
+                  AND application_fee > 0
+                  AND transaction_id <> ''";
 $monthly_result = mysqli_query($conn, $monthly_query);
-$summary['monthly_collection'] = mysqli_fetch_assoc($monthly_result)['total'] ?? 0;
+$monthly_total = 0;
+if ($monthly_result) {
+    while ($row = mysqli_fetch_assoc($monthly_result)) {
+        $monthly_total += ($row['total'] ?? 0);
+    }
+}
+$summary['monthly_collection'] = $monthly_total;
 
 // Total pending fees
 $pending_query = "SELECT SUM(expected_amount - paid_amount) as total FROM fee_collections WHERE payment_status != 'paid'";
@@ -37,14 +49,6 @@ $fee_heads = mysqli_query($conn, "SELECT * FROM fees ORDER BY id");
 
 // Get classes
 $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
-
-// Get recent collections with class-wise fees
-$recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' ', s.last_name) AS student_name, s.id AS student_code, 
-                                            s.class_id, c.class_name, fc.payment_status
-                                           FROM fee_collections fc
-                                           LEFT JOIN students s ON fc.student_id = s.id
-                                           LEFT JOIN classes c ON s.class_id = c.id
-                                           ORDER BY fc.created_at DESC LIMIT 10");
 ?>
 
 <!DOCTYPE html>
@@ -174,8 +178,9 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
             box-shadow: 0 5px 20px rgba(0,0,0,0.05);
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-start;
             transition: all 0.3s;
+            margin-bottom: 15px;
         }
 
         .stat-card:hover {
@@ -210,6 +215,57 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
         .stat-icon.green { background: #e8f5e9; color: #2e7d32; }
         .stat-icon.orange { background: #fff3e0; color: #f57c00; }
         .stat-icon.red { background: #ffebee; color: #c62828; }
+
+        /* Stat Content */
+        .stat-content {
+            margin-left: 15px;
+        }
+
+        .stat-content h6 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            margin: 8px 0 4px 0;
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .stat-content small {
+            color: #999;
+            font-size: 12px;
+        }
+
+        /* Summary Box */
+        .summary-box {
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .summary-box small {
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        .amount-large {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .summary-box:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+        }
 
         /* Content Card */
         .content-card {
@@ -497,57 +553,11 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
                 </div>
             </div>
 
-            <!-- Stats Cards -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-info">
-                        <h3>৳<?php echo number_format($summary['monthly_collection'], 2); ?></h3>
-                        <p>Monthly Collection</p>
-                    </div>
-                    <div class="stat-icon green">
-                        <i class="fas fa-chart-line"></i>
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-info">
-                        <h3>৳<?php echo number_format($summary['pending_fees'], 2); ?></h3>
-                        <p>Total Pending</p>
-                    </div>
-                    <div class="stat-icon orange">
-                        <i class="fas fa-clock"></i>
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-info">
-                        <h3><?php echo $summary['pending_students']; ?></h3>
-                        <p>Students with Dues</p>
-                    </div>
-                    <div class="stat-icon red">
-                        <i class="fas fa-users"></i>
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-info">
-                        <h3><?php echo mysqli_num_rows($fee_heads); ?></h3>
-                        <p>Fee Types</p>
-                    </div>
-                    <div class="stat-icon blue">
-                        <i class="fas fa-tags"></i>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Quick Actions -->
-            
-
             <!-- Tabs -->
             <ul class="nav nav-pills mb-4" id="pills-tab" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="pills-collections-tab" data-bs-toggle="pill" data-bs-target="#pills-collections" type="button">
-                        <i class="fas fa-history me-2"></i>Recent Collections
+                    <button class="nav-link active" id="pills-admission-tab" data-bs-toggle="pill" data-bs-target="#pills-admission" type="button">
+                        <i class="fas fa-file-invoice me-2"></i>Admission Fees
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -555,21 +565,15 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
                         <i class="fas fa-tags me-2"></i>monthly fee heads
                     </button>
                 </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="pills-class-fees-tab" data-bs-toggle="pill" data-bs-target="#pills-class-fees" type="button">
-                        <i class="fas fa-school me-2"></i>Class-wise Fees
-                    </button>
-                </li>
-                
             </ul>
 
             <div class="tab-content" id="pills-tabContent">
-                <!-- Recent Collections Tab -->
-                <div class="tab-pane fade show active" id="pills-collections" role="tabpanel">
+                <!-- Admission Fees Tab -->
+                <div class="tab-pane fade show active" id="pills-admission" role="tabpanel">
                     <div class="content-card">
                         <div class="card-header">
-                            <h5><i class="fas fa-history me-2"></i>Recent Fee Collections</h5>
-                            <button class="btn btn-sm btn-outline-primary" onclick="exportCollections()">
+                            <h5><i class="fas fa-file-invoice me-2"></i>Admission Fee Collections</h5>
+                            <button class="btn btn-sm btn-outline-primary" onclick="exportAdmissionFees()">
                                 <i class="fas fa-download me-2"></i>Export
                             </button>
                         </div>
@@ -581,74 +585,137 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
                                         <th>Receipt No</th>
                                         <th>Date</th>
                                         <th>Student Name</th>
-                                        <th>Fee Type</th>
-                                        <th>Amount</th>
-                                        <th>Monthly Fees</th>
-                                        <th>Month Name</th>
-                                        <th>Actions</th>
+                                        <th>Class</th>
+                                        <th>Payment Method</th>
+                                        <th>Amount Paid</th>
+                                        <th>Transaction ID</th>
+                                        <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php if(mysqli_num_rows($recent_collections) > 0): ?>
-                                        <?php while($row = mysqli_fetch_assoc($recent_collections)): ?>
-                                        <tr>
-                                            <td><span class="badge bg-secondary"><?php echo $row['receipt_no']; ?></span></td>
-                                            <td><?php echo date('d-m-Y', strtotime($row['payment_date'] ?? date('Y-m-d'))); ?></td>
-                                            <td><?php echo $row['student_name'] ?? '<span class="text-warning">Pending Enrollment</span>'; ?></td>
-                                            <td><?php echo ucfirst($row['payment_method'] ?? 'payment'); ?></td>
-                                            <td class="amount">৳<?php echo number_format($row['expected_amount'] ?? 0, 2); ?></td>
-                                            <td class="amount">৳<?php echo number_format($row['paid_amount'] ?? 0, 2); ?></td>
-                                            <td><?php echo date('F Y', strtotime($row['payment_date'] ?? date('Y-m-d'))); ?></td>
-                                            <td>
-                                                <a href="javascript:void(0)" onclick="printReceipt(<?php echo $row['id']; ?>)" 
-                                                   class="btn btn-sm btn-outline-info" title="Print Receipt">
-                                                    <i class="fas fa-print"></i>
-                                                </a>
-                                                <a href="javascript:void(0)" onclick="sendReminder(<?php echo $row['student_id']; ?>)" 
-                                                   class="btn btn-sm btn-outline-warning" title="Send Reminder">
-                                                    <i class="fas fa-sms"></i>
-                                                </a>
-                                            </td>
-                                        </tr>
-                                        <?php endwhile; ?>
-                                    <?php else: ?>
-                                        <tr>
-                                            <td colspan="11" class="text-center py-4 text-muted">
-                                                <i class="fas fa-inbox fa-2x mb-2"></i>
-                                                <p>No fee collections yet</p>
-                                            </td>
-                                        </tr>
+                                    <?php
+                                    $admission_fees = mysqli_query($conn, "SELECT a.id, CONCAT(a.first_name, ' ', a.last_name) AS student_name, 
+                                                                              a.application_date, a.payment_method, a.transaction_id, a.application_fee,
+                                                                              c.class_name, a.status, a.application_fee
+                                                                              FROM admission_applications a
+                                                                              LEFT JOIN classes c ON a.class_id = c.id
+                                                                              WHERE a.application_fee > 0 AND a.transaction_id <> ''
+                                                                              ORDER BY a.application_date DESC");
+                                    
+                                    if(mysqli_num_rows($admission_fees) > 0):
+                                        while($fee = mysqli_fetch_assoc($admission_fees)):
+                                    ?>
+                                    <tr>
+                                        <td><span class="badge bg-secondary">ADM<?php echo str_pad($fee['id'], 6, '0', STR_PAD_LEFT); ?></span></td>
+                                        <td><?php echo date('d-m-Y', strtotime($fee['application_date'])); ?></td>
+                                        <td><?php echo $fee['student_name']; ?></td>
+                                        <td><?php echo $fee['class_name'] ?? '-'; ?></td>
+                                        <td><span class="badge bg-info"><?php echo ucfirst($fee['payment_method']); ?></span></td>
+                                        <td class="amount">৳<?php echo number_format($fee['application_fee'], 2); ?></td>
+                                        <td><small><?php echo $fee['transaction_id']; ?></small></td>
+                                        <td>
+                                            <span class="status-badge paid">
+                                                <i class="fas fa-check-circle me-1"></i>Paid
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    <?php 
+                                        endwhile;
+                                    else:
+                                    ?>
+                                    <tr>
+                                        <td colspan="8" class="text-center py-4 text-muted">
+                                            <i class="fas fa-inbox fa-2x mb-2"></i>
+                                            <p>No admission fees collected yet</p>
+                                        </td>
+                                    </tr>
                                     <?php endif; ?>
                                 </tbody>
                             </table>
                         </div>
                     </div>
                 </div>
-
-                <!-- Monthly Fee Collections Tab -->
                 <div class="tab-pane fade" id="pills-fee-heads" role="tabpanel">
                     <div class="content-card">
                         <div class="card-header">
                             <h5><i class="fas fa-calendar-alt me-2"></i>Monthly Fee Collections</h5>
                             <div>
-                                <select class="form-select d-inline-block" style="width: auto;" id="month_filter">
-                                    <option value="">All Months</option>
-                                    <option value="01">January</option>
-                                    <option value="02">February</option>
-                                    <option value="03">March</option>
-                                    <option value="04">April</option>
-                                    <option value="05">May</option>
-                                    <option value="06">June</option>
-                                    <option value="07">July</option>
-                                    <option value="08">August</option>
-                                    <option value="09">September</option>
-                                    <option value="10">October</option>
-                                    <option value="11">November</option>
-                                    <option value="12">December</option>
-                                </select>
+                                
                                 <button class="btn btn-sm btn-outline-primary ms-2" onclick="exportMonthlyFees()">
                                     <i class="fas fa-download me-2"></i>Export
                                 </button>
+                            </div>
+                        </div>
+
+                        <!-- Monthly Fee Statistics Cards -->
+                        <div class="row mb-4">
+                            <?php
+                            // Monthly Fee Statistics
+                            $monthly_stats_query = "SELECT 
+                                                    (SELECT COUNT(DISTINCT student_id) FROM fee_collections) as total_students,
+                                                    COUNT(DISTINCT CASE WHEN payment_status = 'paid' THEN student_id END) as paid_count,
+                                                    COUNT(DISTINCT CASE WHEN payment_status != 'paid' THEN student_id END) as unpaid_count,
+                                                    SUM(expected_amount) as total_expected,
+                                                    SUM(paid_amount) as total_collected,
+                                                    SUM(expected_amount) - SUM(paid_amount) as total_pending
+                                                    FROM fee_collections";
+                            $monthly_stats = mysqli_fetch_assoc(mysqli_query($conn, $monthly_stats_query));
+                            
+                            $collection_rate = ($monthly_stats['total_expected'] > 0) ? 
+                                              round(($monthly_stats['total_collected'] / $monthly_stats['total_expected']) * 100, 2) : 0;
+                            ?>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-icon" style="background: #e3f2fd;">
+                                        <i class="fas fa-users" style="color: #1976d2;"></i>
+                                    </div>
+                                    <div class="stat-content">
+                                        <h6>Total Students</h6>
+                                        <p class="stat-value"><?php echo $monthly_stats['total_students'] ?? 0; ?></p>
+                                        <small>Enrolled in classes</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-icon" style="background: #e8f5e9;">
+                                        <i class="fas fa-check-circle" style="color: #388e3c;"></i>
+                                    </div>
+                                    <div class="stat-content">
+                                        <h6>Paid Students</h6>
+                                        <p class="stat-value"><?php echo $monthly_stats['paid_count'] ?? 0; ?></p>
+                                        <small><?php echo $monthly_stats['total_students'] > 0 ? round(($monthly_stats['paid_count'] / $monthly_stats['total_students']) * 100, 1) : 0; ?>% of total</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <div class="stat-icon" style="background: #fff3e0;">
+                                        <i class="fas fa-exclamation-circle" style="color: #f57c00;"></i>
+                                    </div>
+                                    <div class="stat-content">
+                                        <h6>Unpaid Students</h6>
+                                        <p class="stat-value"><?php echo $monthly_stats['unpaid_count'] ?? 0; ?></p>
+                                        <small><?php echo $monthly_stats['total_students'] > 0 ? round(($monthly_stats['unpaid_count'] / $monthly_stats['total_students']) * 100, 1) : 0; ?>% of total</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Monthly Fee Summary -->
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <div class="summary-box" style="background: linear-gradient(135deg, #c8e6c9 0%, #81c784 100%); border-left: 4px solid #2e7d32;">
+                                    <small style="color: #2e7d32; font-weight: 600;">Total Collected</small>
+                                    <p class="amount-large">৳<?php echo number_format($monthly_stats['total_collected'] ?? 0, 2); ?></p>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="summary-box" style="background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%); border-left: 4px solid #c62828;">
+                                    <small style="color: #c62828; font-weight: 600;">Total Pending</small>
+                                    <p class="amount-large">৳<?php echo number_format($monthly_stats['total_pending'] ?? 0, 2); ?></p>
+                                </div>
                             </div>
                         </div>
 
@@ -659,7 +726,6 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
                                         <th>Student ID</th>
                                         <th>Student Name</th>
                                         <th>Class</th>
-                                        <th>Fee Type</th>
                                         <th>Month</th>
                                         <th>Total Amount</th>
                                         <th>Paid Amount</th>
@@ -670,39 +736,47 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
                                 </thead>
                                 <tbody>
                                     <?php
-                                    $monthly_fees = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' ', s.last_name) AS student_name, s.id AS student_code, c.class_name
+                                    // Get current month for dynamic filtering (next month for upcoming fees)
+                                    $next_month_label = date('M Y', strtotime('first day of next month'));
+                                    
+                                    $monthly_fees = mysqli_query($conn, "SELECT 
+                                                                          fc.student_id as id, 
+                                                                          CONCAT(s.first_name, ' ', s.last_name) AS student_name, 
+                                                                          c.class_name, 
+                                                                          fc.fee_month,
+                                                                          fc.expected_amount,
+                                                                          fc.paid_amount,
+                                                                          fc.payment_status
                                                                           FROM fee_collections fc
                                                                           LEFT JOIN students s ON fc.student_id = s.id
                                                                           LEFT JOIN classes c ON s.class_id = c.id
-                                                                          WHERE fc.student_id IS NOT NULL
-                                                                          ORDER BY fc.payment_date DESC");
+                                                                          WHERE fc.fee_month LIKE '%{$next_month_label}%'
+                                                                          ORDER BY s.id");
                                     
                                     if(mysqli_num_rows($monthly_fees) > 0):
-                                        while($fee = mysqli_fetch_assoc($monthly_fees)):
-                                            $payment_month = $fee['payment_date'] ? date('M Y', strtotime($fee['payment_date'])) : 'N/A';
+                                        while($student = mysqli_fetch_assoc($monthly_fees)):
                                     ?>
                                     <tr>
-                                        <td><?php echo $fee['student_id'] ?? '-'; ?></td>
-                                        <td><?php echo $fee['student_name'] ?? '-'; ?></td>
-                                        <td><?php echo $fee['class_name'] ?? '-'; ?></td>
-                                        <td><?php echo $fee['payment_method'] ?? '-'; ?></td>
-                                        <td><?php echo $payment_month; ?></td>
-                                        <td class="amount">৳<?php echo number_format($fee['expected_amount'], 2); ?></td>
-                                        <td class="amount">৳<?php echo number_format($fee['paid_amount'], 2); ?></td>
-                                        <td class="amount">৳<?php echo number_format(($fee['expected_amount'] ?? 0) - ($fee['paid_amount'] ?? 0), 2); ?></td>
+                                        <td><?php echo $student['id'] ?? '-'; ?></td>
+                                        <td><?php echo $student['student_name'] ?? '-'; ?></td>
+                                        <td><?php echo $student['class_name'] ?? '-'; ?></td>
+                                        <td><?php echo $next_month_label; ?></td>
+                                        <td class="amount">৳<?php echo number_format($student['expected_amount'] ?? 0, 2); ?></td>
+                                        <td class="amount">৳<?php echo number_format($student['paid_amount'] ?? 0, 2); ?></td>
+                                        <td class="amount">৳<?php echo number_format(($student['expected_amount'] - $student['paid_amount']) ?? 0, 2); ?></td>
                                         <td>
-                                            <span class="status-badge <?php echo strtolower($fee['payment_status'] ?? 'unpaid'); ?>">
-                                                <?php echo ucfirst($fee['payment_status'] ?? 'unpaid'); ?>
+                                            <span class="status-badge <?php echo strtolower($student['payment_status'] ?? 'unpaid'); ?>">
+                                                <?php echo ucfirst($student['payment_status'] ?? 'Unpaid'); ?>
                                             </span>
                                         </td>
                                         <td>
-                                            <a href="javascript:void(0)" onclick="printReceipt(<?php echo $fee['id']; ?>)" 
-                                               class="btn btn-sm btn-outline-info" title="Print">
-                                                <i class="fas fa-print"></i>
+                                            <a href="javascript:void(0)" onclick="sendEmailReminder(<?php echo $student['id']; ?>)" 
+                                               class="btn btn-sm btn-outline-info" title="Send Email to Parent">
+                                                <i class="fas fa-envelope"></i>
                                             </a>
-                                            <a href="javascript:void(0)" onclick="editPayment(<?php echo $fee['id']; ?>)" 
-                                               class="btn btn-sm btn-outline-primary" title="Edit">
-                                                <i class="fas fa-edit"></i>
+                                            <a href="javascript:void(0)" onclick="recordPayment(<?php echo $student['id']; ?>)" 
+                                               class="btn btn-sm btn-outline-primary" title="Record Payment">
+                                                <i class="fas fa-plus"></i>
                                             </a>
                                         </td>
                                     </tr>
@@ -711,67 +785,12 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
                                     else:
                                     ?>
                                     <tr>
-                                        <td colspan="10" class="text-center py-4 text-muted">
+                                        <td colspan="9" class="text-center py-4 text-muted">
                                             <i class="fas fa-inbox fa-2x mb-2"></i>
-                                            <p>No monthly fee collections yet</p>
+                                            <p>No students enrolled</p>
                                         </td>
                                     </tr>
                                     <?php endif; ?>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Class-wise Fees Tab -->
-                <div class="tab-pane fade" id="pills-class-fees" role="tabpanel">
-                    <div class="content-card">
-                        <div class="card-header">
-                            <h5><i class="fas fa-school me-2"></i>Class-wise Fee Setup</h5>
-                            <button class="btn btn-sm btn-primary" onclick="openClassFeeModal()">
-                                <i class="fas fa-plus me-2"></i>Set Class Fee
-                            </button>
-                        </div>
-
-                        <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>Class</th>
-                                        <th>Section</th>
-                                        <th>Fee Type</th>
-                                        <th>Amount</th>
-                                        <th>Due Date</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php
-                                    $class_fees = mysqli_query($conn, "SELECT cf.*, c.class_name
-                                                                        FROM class_fees cf
-                                                                        JOIN classes c ON cf.class_id = c.id
-                                                                        ORDER BY c.class_name");
-                                    while($fee = mysqli_fetch_assoc($class_fees)):
-                                    ?>
-                                    <tr>
-                                        <td><?php echo $fee['class_name'] ?? '-'; ?></td>
-                                        <td>-</td>
-                                        <td>Monthly Fee</td>
-                                        <td class="amount">৳<?php echo number_format($fee['monthly_fee'] ?? 0, 2); ?></td>
-                                        <td>Not set</td>
-                                        <td>
-                                            <a href="javascript:void(0)" onclick="editClassFee(<?php echo $fee['id']; ?>)" 
-                                               class="btn btn-sm btn-outline-primary">
-                                                <i class="fas fa-edit"></i>
-                                            </a>
-                                            <a href="?delete_class_fee=<?php echo $fee['id']; ?>" 
-                                               class="btn btn-sm btn-outline-danger"
-                                               onclick="return confirm('Delete this fee setup?')">
-                                                <i class="fas fa-trash"></i>
-                                            </a>
-                                        </td>
-                                    </tr>
-                                    <?php endwhile; ?>
                                 </tbody>
                             </table>
                         </div>
@@ -1179,6 +1198,28 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
             });
         }
 
+        // Send Email Reminder to Parent
+        function sendEmailReminder(student_id) {
+            if(confirm('Send email reminder to the parent of this student?')) {
+                $.ajax({
+                    url: 'send-fee-reminder.php',
+                    type: 'POST',
+                    data: {student_id: student_id, send_email: true},
+                    success: function(response) {
+                        const result = JSON.parse(response);
+                        if(result.success) {
+                            alert(result.message);
+                        } else {
+                            alert('Error: ' + result.message);
+                        }
+                    },
+                    error: function() {
+                        alert('Error sending email. Please try again.');
+                    }
+                });
+            }
+        }
+
         // Send Reminder
         function sendReminder(student_id) {
             if(confirm('Send fee reminder SMS to this student?')) {
@@ -1207,8 +1248,8 @@ $recent_collections = mysqli_query($conn, "SELECT fc.*, CONCAT(s.first_name, ' '
         }
 
         // Export functions
-        function exportCollections() {
-            window.location.href = 'export-collections.php';
+        function exportAdmissionFees() {
+            alert('Exporting admission fees - feature coming soon!');
         }
 
         function exportDueList() {

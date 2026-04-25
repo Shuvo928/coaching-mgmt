@@ -2,6 +2,7 @@
 session_start();
 require_once '../includes/db.php';
 require_once __DIR__ . '/../includes/mailer.php';
+require_once '../includes/payment_helpers.php';
 
 // Check if user is logged in
 if(!isset($_SESSION['user_id'])) {
@@ -121,17 +122,64 @@ function generateStudentID($conn) {
 }
 
 function createStudentUserFromAdmission($conn, $app) {
-    if(empty($app['username']) || empty($app['password_hash'])) {
-        return false;
-    }
-
-    $username = mysqli_real_escape_string($conn, $app['username']);
+    $username = trim($app['username'] ?? '');
+    $password_hash = trim($app['password_hash'] ?? '');
     $email = mysqli_real_escape_string($conn, $app['email']);
-    $password_hash = mysqli_real_escape_string($conn, $app['password_hash']);
     $mobile = mysqli_real_escape_string($conn, $app['mobile']);
     $gender = mysqli_real_escape_string($conn, $app['gender']);
     $address = mysqli_real_escape_string($conn, $app['address']);
     $full_name = trim($app['full_name']);
+    $program = mysqli_real_escape_string($conn, $app['program'] ?? '');
+    $group_name = mysqli_real_escape_string($conn, $app['group'] ?? '');
+
+    // Get class_id and group_id
+    $class_id = NULL;
+    $group_id = NULL;
+    if(!empty($program)) {
+        $class_query = mysqli_query($conn, "SELECT id FROM classes WHERE class_name = '$program' LIMIT 1");
+        if($class_query && mysqli_num_rows($class_query) > 0) {
+            $class_id = mysqli_fetch_assoc($class_query)['id'];
+        }
+    }
+    if(!empty($group_name)) {
+        $group_query = mysqli_query($conn, "SELECT id FROM groups WHERE group_name = '$group_name' LIMIT 1");
+        if($group_query && mysqli_num_rows($group_query) > 0) {
+            $group_id = mysqli_fetch_assoc($group_query)['id'];
+        }
+    }
+
+    // Generate a username if none exists
+    if(empty($username)) {
+        $base = '';
+        if(!empty($app['email'])) {
+            $base = strtolower(preg_replace('/[^a-z0-9]/', '', strstr($app['email'], '@', true)));
+        }
+        if(empty($base) && !empty($full_name)) {
+            $base = strtolower(preg_replace('/[^a-z0-9]/', '', $full_name));
+        }
+        if(empty($base)) {
+            $base = 'student';
+        }
+
+        $candidate = substr($base, 0, 20);
+        $suffix = 1;
+        while(mysqli_num_rows(mysqli_query($conn, "SELECT id FROM users WHERE username = '$candidate' LIMIT 1")) > 0) {
+            $candidate = substr($base, 0, 18) . $suffix;
+            $suffix++;
+        }
+
+        $username = mysqli_real_escape_string($conn, $candidate);
+    } else {
+        $username = mysqli_real_escape_string($conn, $username);
+    }
+
+    // Generate a password hash if none exists
+    $plain_password = null;
+    if(empty($password_hash)) {
+        $plain_password = 'Stud' . mt_rand(1000, 9999);
+        $password_hash = password_hash($plain_password, PASSWORD_DEFAULT);
+    }
+    $password_hash = mysqli_real_escape_string($conn, $password_hash);
     $nameParts = explode(' ', $full_name);
     $first_name = mysqli_real_escape_string($conn, array_shift($nameParts));
     $last_name = mysqli_real_escape_string($conn, trim(implode(' ', $nameParts)));
@@ -140,26 +188,35 @@ function createStudentUserFromAdmission($conn, $app) {
         $last_name = '';
     }
 
-    // Skip if the student user already exists
+    $inserted_new_user = false;
     $check_user = mysqli_query($conn, "SELECT id FROM users WHERE username = '$username' LIMIT 1");
     if($check_user && mysqli_num_rows($check_user) > 0) {
-        return true;
+        $existing_user = mysqli_fetch_assoc($check_user);
+        $user_id = intval($existing_user['id']);
+
+        $student_check = mysqli_query($conn, "SELECT id FROM students WHERE user_id = $user_id LIMIT 1");
+        if($student_check && mysqli_num_rows($student_check) > 0) {
+            return true;
+        }
+    } else {
+        $user_query = "INSERT INTO users (username, password, email, role, status) VALUES ('$username', '$password_hash', '$email', 'student', 1)";
+        if(!mysqli_query($conn, $user_query)) {
+            return false;
+        }
+
+        $user_id = mysqli_insert_id($conn);
+        $inserted_new_user = true;
     }
 
-    $user_query = "INSERT INTO users (username, password, email, role, status) VALUES ('$username', '$password_hash', '$email', 'student', 1)";
-    if(!mysqli_query($conn, $user_query)) {
-        return false;
-    }
-
-    $user_id = mysqli_insert_id($conn);
     $student_unique_id = generateStudentID($conn);
 
-    $insert_student = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, photo, class_id, admission_date, status) 
-                      VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', '', '', '$email', '$mobile', NULL, '$gender', '$address', NULL, NULL, NOW(), 1)";
+    $insert_student = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, photo, class_id, group_id, admission_date, status) 
+                      VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', '', '', '$email', '$mobile', NULL, '$gender', '$address', NULL, " . ($class_id ? $class_id : 'NULL') . ", " . ($group_id ? $group_id : 'NULL') . ", NOW(), 1)";
 
     if(!mysqli_query($conn, $insert_student)) {
-        // Roll back created user if student record fails
-        mysqli_query($conn, "DELETE FROM users WHERE id = $user_id");
+        if($inserted_new_user) {
+            mysqli_query($conn, "DELETE FROM users WHERE id = $user_id");
+        }
         return false;
     }
 
@@ -180,11 +237,19 @@ if(isset($_POST['approve'])) {
     if($app) {
         $query = "UPDATE admission_applications SET status = 'Approved' WHERE id = $id";
         if(mysqli_query($conn, $query)) {
-            if(!empty($app['username']) && !empty($app['password_hash'])) {
-                createStudentUserFromAdmission($conn, $app);
+        if(createStudentUserFromAdmission($conn, $app)) {
+            // Get the student_id that was just created for fee generation
+            $appPhoneField = 'phone'; // Adjust if needed
+            $student_query = "SELECT s.id, s.class_id FROM students s 
+                             LEFT JOIN admission_applications aa ON aa." . $appPhoneField . " = s.phone 
+                             WHERE aa.id = $id LIMIT 1";
+            $student_result = mysqli_query($conn, $student_query);
+            
+            if($student_result && mysqli_num_rows($student_result) > 0) {
+                $student = mysqli_fetch_assoc($student_result);
+                // Auto-generate monthly fees for the newly admitted student
+                autoGenerateMonthlyFeesForStudent($conn, $student['id'], $student['class_id']);
             }
-
-            // Send approval SMS to student
             $student_message = "Dear " . $app['full_name'] . ",\n\nYour admission application has been approved. Welcome to CoachingPro!\n\nThank you.\nCoachingPro Admin";
             sendSMS($app['mobile'], $student_message);
 
@@ -207,6 +272,7 @@ if(isset($_POST['approve'])) {
         }
     } else {
         $_SESSION['error'] = "Application not found.";
+    }
     }
 }
 
@@ -295,9 +361,33 @@ if(isset($_POST['edit_admission'])) {
     $setClauses[] = "transaction_id = '$transaction_id'";
     $setClauses[] = "sender_number = '$sender_number'";
 
+    $username = trim($_POST['username'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+
+    if($username !== '') {
+        $username = mysqli_real_escape_string($conn, $username);
+        $setClauses[] = "username = '$username'";
+    }
+
+    if($password !== '') {
+        $password_hash = password_hash($password, PASSWORD_DEFAULT);
+        $password_hash = mysqli_real_escape_string($conn, $password_hash);
+        $setClauses[] = "password_hash = '$password_hash'";
+    }
+
     $update_query = "UPDATE admission_applications SET " . implode(", ", $setClauses) . " WHERE id = $id";
 
     if(mysqli_query($conn, $update_query)) {
+        $nameField = $admissionColumns['hasFullName'] ? 'full_name' : "CONCAT(first_name, ' ', last_name)";
+        $phoneField = $admissionColumns['hasMobile'] ? 'mobile' : ($admissionColumns['hasPhone'] ? 'phone' : "''");
+        $app_query = "SELECT $nameField AS full_name, email, $phoneField AS mobile, parent_name, parent_email, parent_phone, username, password_hash, gender, address, status, program, `group` FROM admission_applications WHERE id = $id";
+        $app_row = mysqli_fetch_assoc(mysqli_query($conn, $app_query));
+        if($app_row && $app_row['status'] === 'Approved' && !empty($app_row['username']) && !empty($app_row['password_hash'])) {
+            $success = createStudentUserFromAdmission($conn, $app_row);
+            if(!$success) {
+                $_SESSION['error'] = "Application updated but failed to create student record.";
+            }
+        }
         $_SESSION['success'] = "Application updated successfully.";
     } else {
         $_SESSION['error'] = "Failed to update application. Please try again.";
@@ -928,6 +1018,16 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                                     <div class="mb-3">
                                                         <label class="form-label">Parent Phone</label>
                                                         <input type="text" class="form-control" name="parent_phone" value="<?php echo htmlspecialchars($app['parent_phone']); ?>" required>
+                                                    </div>
+                                                    <div class="row mb-3">
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Username</label>
+                                                            <input type="text" class="form-control" name="username" value="<?php echo htmlspecialchars($app['username'] ?? ''); ?>">
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <label class="form-label">Password</label>
+                                                            <input type="password" class="form-control" name="password" placeholder="Leave blank to keep current password">
+                                                        </div>
                                                     </div>
                                                     <hr>
                                                     <div class="row mb-3">
