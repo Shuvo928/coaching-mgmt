@@ -30,6 +30,62 @@ if (empty($student_ids) && !empty($student_mobile)) {
 
 $student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
 
+$student_class_name = '';
+$student_group_name = '';
+$expected_class_group = '';
+$class_routine = [];
+
+if (!empty($student_id)) {
+    $admissionPhoneColumn = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'mobile'");
+    $admissionHasMobile = ($admissionPhoneColumn && mysqli_num_rows($admissionPhoneColumn) > 0);
+    $admissionJoin = $admissionHasMobile
+        ? "COALESCE(NULLIF(aa.mobile, ''), aa.phone) = s.phone"
+        : "aa.phone = s.phone";
+
+    $routine_student_query = "SELECT s.*, c.class_name, COALESCE(aa.`group`, '') AS group_name \n"
+        . "FROM students s \n"
+        . "LEFT JOIN classes c ON s.class_id = c.id \n"
+        . "LEFT JOIN admission_applications aa ON " . $admissionJoin . " \n"
+        . "WHERE s.id = " . intval($student_id) . " LIMIT 1";
+    $routine_student_result = mysqli_query($conn, $routine_student_query);
+    $routine_student = mysqli_fetch_assoc($routine_student_result);
+
+    if ($routine_student) {
+        $student_class_name = $routine_student['class_name'] ?? '';
+        $student_group_name = $routine_student['group_name'] ?? '';
+
+        $class_number = '';
+        if (!empty($student_class_name)) {
+            if (stripos($student_class_name, 'SSC') !== false) {
+                $class_number = 'SSC Batch';
+            } else {
+                preg_match('/Class\s+(\d+)/i', $student_class_name, $matches);
+                if (!empty($matches[1])) {
+                    $class_number = 'Class ' . $matches[1];
+                }
+            }
+        }
+
+        if (!empty($class_number) && !empty($student_group_name)) {
+            $group_display = ucfirst(strtolower(trim($student_group_name)));
+            if (stripos($group_display, 'group') === false) {
+                $group_display .= ' Group';
+            }
+            $expected_class_group = $class_number . ' — ' . $group_display;
+        }
+    }
+}
+
+// Query routine from the routine table when child class/group is known
+if (!empty($expected_class_group)) {
+    $routine_query = "SELECT * FROM `routine` WHERE class_group = '" . mysqli_real_escape_string($conn, $expected_class_group) . "' "
+        . "ORDER BY FIELD(day, 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'), start_time";
+    $routine_result = mysqli_query($conn, $routine_query);
+    while ($routine = mysqli_fetch_assoc($routine_result)) {
+        $class_routine[] = $routine;
+    }
+}
+
 // Get pending fees for next 2 months only
 $upcoming_fees = getUpcomingFeesForStudent($conn, $student_id, 2);
 
@@ -376,16 +432,11 @@ foreach ($upcoming_fees as $fee) {
                         Dashboard
                     </a>
                 </li>
-                <li>
-                    <a href="attendance.php">
-                        <i class="fas fa-calendar-check"></i>
-                        Attendance
-                    </a>
-                </li>
+                
                 <li>
                     <a href="results.php">
                         <i class="fas fa-chart-bar"></i>
-                        Results & Grades
+                        Check Results 
                     </a>
                 </li>
                 <li>
@@ -394,7 +445,12 @@ foreach ($upcoming_fees as $fee) {
                         Fees & Payments
                     </a>
                 </li>
-                
+                <li>
+                    <a href="../parent-discontinue.php" onclick="return confirm('Are you sure you want to remove this account permanently?');">
+                        <i class="fas fa-sign-out-alt"></i>
+                         discontinues enrollment 
+                    </a>
+                </li>
                 <li>
                     <a href="../parent-logout.php">
                         <i class="fas fa-sign-out-alt"></i>
@@ -423,6 +479,111 @@ foreach ($upcoming_fees as $fee) {
                 </div>
             </div>
 
+            <?php if(isset($_SESSION['success'])): ?>
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            <?php endif; ?>
+            <?php if(isset($_SESSION['error'])): ?>
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <?php echo $_SESSION['error']; unset($_SESSION['error']); ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            <?php endif; ?>
+
+            <!-- Announcements Section -->
+            <div class="card p-4 mb-4" style="background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0" style="color: #2c3e66;"><i class="fas fa-bullhorn me-2" style="color: #ff9800;"></i>📢 Latest Announcements</h5>
+                    <span class="badge bg-secondary" id="announcementCount">Loading...</span>
+                </div>
+                <div id="announcementsContainer" style="max-height: 400px; overflow-y: auto;">
+                    <p class="text-muted text-center" id="loadingMsg">
+                        <i class="fas fa-spinner fa-spin me-2"></i>Loading announcements...
+                    </p>
+                </div>
+            </div>
+
+            <script>
+            // Fetch announcements for the child's class and group
+            fetch('../api/get-announcements.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('announcementsContainer');
+                const loadingMsg = document.getElementById('loadingMsg');
+                const countBadge = document.getElementById('announcementCount');
+                
+                if (data.success && data.announcements.length > 0) {
+                    countBadge.textContent = data.count + ' Announcement' + (data.count !== 1 ? 's' : '');
+                    loadingMsg.remove();
+                    
+                    let html = '';
+                    data.announcements.forEach(ann => {
+                        const date = new Date(ann.created_at);
+                        const dateStr = date.toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                        });
+                        const timeStr = date.toLocaleTimeString('en-US', { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                        });
+                        
+                        html += `
+                            <div class="border rounded p-3 mb-3" style="background: #f8f9fa; border-left: 4px solid #ff9800;">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div style="flex: 1;">
+                                        <h6 style="font-weight: 600; color: #2c3e66; margin-bottom: 0.5rem;">
+                                            ${escapeHtml(ann.title)}
+                                        </h6>
+                                        <p style="color: #495057; margin: 0.5rem 0; font-size: 0.9rem;">
+                                            ${escapeHtml(ann.message.substring(0, 100))}${ann.message.length > 100 ? '...' : ''}
+                                        </p>
+                                        <small style="color: #6c757d;">
+                                            <i class="far fa-calendar me-1"></i>${dateStr} at ${timeStr} 
+                                            <span style="margin-left: 10px;">
+                                                <i class="fas fa-user me-1"></i><strong>${escapeHtml(ann.teacher_name)}</strong>
+                                            </span>
+                                        </small>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-info ms-2 view-announcement-btn" data-title="${escapeHtml(ann.title)}" data-message="${escapeHtml(ann.message)}" data-date="${dateStr}" data-time="${timeStr}">
+                                        <i class="fas fa-eye"></i> View
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    container.innerHTML = html;
+                    container.querySelectorAll('.view-announcement-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            viewAnnouncement(btn.dataset.title, btn.dataset.message, btn.dataset.date, btn.dataset.time);
+                        });
+                    });
+                } else {
+                    countBadge.textContent = '0 Announcements';
+                    loadingMsg.innerHTML = '<i class="fas fa-info-circle me-2"></i>No announcements at the moment.';
+                }
+            })
+            .catch(err => {
+                console.error('Error fetching announcements:', err);
+                document.getElementById('loadingMsg').innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Unable to load announcements.';
+            });
+
+            function escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            function viewAnnouncement(title, message, date, time) {
+                alert('📢 ' + title + '\n\n' + message + '\n\nPublished: ' + date + ' at ' + time);
+            }
+            </script>
 
 
             <!-- Stats Grid -->
@@ -445,6 +606,55 @@ foreach ($upcoming_fees as $fee) {
                         <small style="color: #999;">Next 2 Months</small>
                     </div>
                 </div>
+            </div>
+
+            <div class="card p-4 mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h5 class="mb-0">📚 Child's Routine</h5>
+                        <?php if (!empty($student_class_name) || !empty($student_group_name)): ?>
+                            <small class="text-muted"><?php echo htmlspecialchars(trim($student_class_name . ' / ' . $student_group_name)); ?></small>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <?php if (!empty($class_routine)): ?>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover table-striped mb-0">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th style="width: 12%;">Day</th>
+                                    <th style="width: 25%;">Subject</th>
+                                    <th style="width: 20%;">Teacher</th>
+                                    <th style="width: 13%;">Room</th>
+                                    <th style="width: 30%;">Time</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($class_routine as $routine_item): ?>
+                                    <tr>
+                                        <td><strong><?php echo htmlspecialchars($routine_item['day'] ?? 'N/A'); ?></strong></td>
+                                        <td><?php echo htmlspecialchars($routine_item['subject'] ?? 'N/A'); ?></td>
+                                        <td><?php echo htmlspecialchars($routine_item['teacher'] ?? 'N/A'); ?></td>
+                                        <td><span class="badge bg-info"><?php echo htmlspecialchars($routine_item['room'] ?? 'N/A'); ?></span></td>
+                                        <td>
+                                            <?php 
+                                                $start = isset($routine_item['start_time']) ? date('g:i A', strtotime($routine_item['start_time'])) : '';
+                                                $end = isset($routine_item['end_time']) ? date('g:i A', strtotime($routine_item['end_time'])) : '';
+                                                echo htmlspecialchars(trim($start . ' – ' . $end));
+                                            ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php else: ?>
+                    <div class="alert alert-info mb-0" role="alert">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>No schedule is available yet.</strong> This student’s routine will appear here once it is created for their class and group.
+                    </div>
+                <?php endif; ?>
             </div>
 
             <!-- Quick Links -->

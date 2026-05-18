@@ -161,3 +161,93 @@ function linkParentToStudentByPhone($conn, $parent_id, $student_phone) {
     $student_phone = mysqli_real_escape_string($conn, $student_phone);
     return mysqli_query($conn, "UPDATE students SET parent_id = $parent_id WHERE phone = '$student_phone'");
 }
+
+function ensureParentDiscontinueRequestsTableExists($conn) {
+    $createTableSql = "CREATE TABLE IF NOT EXISTS parent_discontinue_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        parent_id INT NOT NULL,
+        parent_name VARCHAR(100) DEFAULT NULL,
+        parent_email VARCHAR(100) DEFAULT NULL,
+        parent_phone VARCHAR(50) DEFAULT NULL,
+        student_id INT DEFAULT NULL,
+        student_name VARCHAR(150) DEFAULT NULL,
+        requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        status ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending',
+        admin_id INT DEFAULT NULL,
+        decided_at DATETIME DEFAULT NULL,
+        due_amount DECIMAL(10,2) DEFAULT 0,
+        due_summary TEXT DEFAULT NULL,
+        note TEXT DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
+    return mysqli_query($conn, $createTableSql);
+}
+
+function getParentDiscontinueRequestByParent($conn, $parent_id) {
+    ensureParentDiscontinueRequestsTableExists($conn);
+    $parent_id = (int) $parent_id;
+    $query = "SELECT * FROM parent_discontinue_requests WHERE parent_id = $parent_id ORDER BY requested_at DESC LIMIT 1";
+    $result = mysqli_query($conn, $query);
+    return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
+}
+
+function getParentDiscontinueRequestById($conn, $request_id) {
+    ensureParentDiscontinueRequestsTableExists($conn);
+    $request_id = (int) $request_id;
+    $query = "SELECT * FROM parent_discontinue_requests WHERE id = $request_id LIMIT 1";
+    $result = mysqli_query($conn, $query);
+    return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
+}
+
+function createParentDiscontinueRequest($conn, $parent_id, $parent_name, $parent_email, $parent_phone, $student_id, $student_name, $due_amount, $due_summary) {
+    ensureParentDiscontinueRequestsTableExists($conn);
+
+    $parent_id = (int) $parent_id;
+    $parent_name = mysqli_real_escape_string($conn, $parent_name);
+    $parent_email = mysqli_real_escape_string($conn, $parent_email);
+    $parent_phone = mysqli_real_escape_string($conn, $parent_phone);
+    $student_id = !empty($student_id) ? (int) $student_id : 'NULL';
+    $student_name = mysqli_real_escape_string($conn, $student_name);
+    $due_amount = number_format((float) $due_amount, 2, '.', '');
+    $due_summary = mysqli_real_escape_string($conn, $due_summary);
+
+    $query = "INSERT INTO parent_discontinue_requests 
+        (parent_id, parent_name, parent_email, parent_phone, student_id, student_name, due_amount, due_summary)
+        VALUES ($parent_id, '$parent_name', '$parent_email', '$parent_phone', $student_id, '$student_name', $due_amount, '$due_summary')";
+    return mysqli_query($conn, $query);
+}
+
+function updateParentDiscontinueRequestStatus($conn, $request_id, $status, $admin_id = null, $note = '') {
+    ensureParentDiscontinueRequestsTableExists($conn);
+    $request_id = (int) $request_id;
+    $status = mysqli_real_escape_string($conn, $status);
+    $admin_id = !empty($admin_id) ? (int) $admin_id : 'NULL';
+    $note = mysqli_real_escape_string($conn, $note);
+    $decided_at = date('Y-m-d H:i:s');
+
+    $query = "UPDATE parent_discontinue_requests SET status = '$status', admin_id = $admin_id, decided_at = '$decided_at', note = '$note' WHERE id = $request_id";
+    return mysqli_query($conn, $query);
+}
+
+function getPendingParentDiscontinueRequestCount($conn) {
+    ensureParentDiscontinueRequestsTableExists($conn);
+    $result = mysqli_query($conn, "SELECT COUNT(*) AS total FROM parent_discontinue_requests WHERE status = 'Pending'");
+    return ($result && ($row = mysqli_fetch_assoc($result))) ? (int)$row['total'] : 0;
+}
+
+function getPendingAdmissionsCount($conn) {
+    $result = mysqli_query($conn, "SELECT COUNT(*) AS total FROM admission_applications WHERE status = 'Pending'");
+    return ($result && ($row = mysqli_fetch_assoc($result))) ? (int)$row['total'] : 0;
+}
+
+function getAllParentDiscontinueRequests($conn) {
+    ensureParentDiscontinueRequestsTableExists($conn);
+    $result = mysqli_query($conn, "SELECT * FROM parent_discontinue_requests ORDER BY requested_at DESC");
+    $requests = [];
+    if ($result) {
+        while ($row = mysqli_fetch_assoc($result)) {
+            $requests[] = $row;
+        }
+    }
+    return $requests;
+}

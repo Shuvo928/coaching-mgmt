@@ -2,10 +2,6 @@
 session_start();
 require_once '../includes/db.php';
 
-header('Content-Type: application/json');
-
-$response = ['success' => false, 'message' => '', 'count' => 0];
-
 // ==============================================
 // 🔧 SMS API CONFIGURATION - UPDATE THESE VALUES
 // ==============================================
@@ -138,9 +134,14 @@ function sendViaAPI($phone, $message) {
     }
     
     // ==============================================
-    // Handle different SMS types
+    // Handle different SMS types when this file is accessed directly
     // ==============================================
-    switch($type) {
+    if (realpath(__FILE__) === realpath($_SERVER['SCRIPT_FILENAME'])) {
+        header('Content-Type: application/json');
+        $response = ['success' => false, 'message' => '', 'count' => 0];
+        $type = $_POST['type'] ?? '';
+
+        switch($type) {
         case 'individual':
             $student_id = intval($_POST['student_id']);
             $phone = mysqli_real_escape_string($conn, $_POST['phone']);
@@ -291,8 +292,7 @@ function sendViaAPI($phone, $message) {
             $response['count'] = $sent_count;
             $response['message'] = "SMS sent to $sent_count out of $total_numbers numbers";
             break;
+        }
+        echo json_encode($response);
     }
-}
-
-echo json_encode($response);
 ?>

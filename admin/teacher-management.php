@@ -1,11 +1,14 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+/** @var mysqli $conn */
 require_once '../includes/auth.php';
 
 // Check authentication
 checkAuth();
 checkRole(['admin']);
+
+$pending_admissions = getPendingAdmissionsCount($conn);
 
 // Check if assigned_subjects column exists
 $assignedSubjectsColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teachers LIKE 'assigned_subjects'");
@@ -412,6 +415,13 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
                     <i class="fas fa-home"></i>
                     <span>Dashboard</span>
                 </a>
+                  <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
+                    <?php if($pending_admissions > 0): ?>
+                        <span class="notification-badge"><?php echo $pending_admissions; ?></span>
+                    <?php endif; ?>
+                </a>
                 <a href="student-management.php" class="menu-item">
                     <i class="fas fa-user-graduate"></i>
                     <span>Student Management</span>
@@ -420,13 +430,15 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="admission-management.php" class="menu-item">
-                    <i class="fas fa-file-alt"></i>
-                    <span>Admissions</span>
-                </a>
-                <a href="attendance.php" class="menu-item">
-                    <i class="fas fa-calendar-check"></i>
-                    <span>Attendance</span>
+              
+                
+                <a href="routine-management.php" class="menu-item">
+    <i class="fas fa-calendar-alt"></i>
+    <span>Routine Management</span>
+</a>
+                <a href="parent-discontinue-requests.php" class="menu-item">
+                    <i class="fas fa-user-slash"></i>
+                    <span>Discontinue Requests</span>
                 </a>
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
@@ -556,6 +568,10 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
                                     </span>
                                 </td>
                                 <td>
+                                    <a href="javascript:void(0)" onclick="viewTeacherDetails(<?php echo $row['id']; ?>)" 
+                                       class="action-btn btn-view" title="View Details">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
                                     <a href="javascript:void(0)" onclick="editTeacher(<?php echo $row['id']; ?>)" 
                                        class="action-btn btn-edit" title="Edit">
                                         <i class="fas fa-edit"></i>
@@ -620,24 +636,29 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Preferred Subjects<?php echo $assignedSubjectsColumnExists ? ' *' : ''; ?></label>
-                            <textarea class="form-control" name="assigned_subjects" id="assigned_subjects" 
-                                      rows="3" placeholder="e.g., Mathematics, Physics, Chemistry, English"<?php echo $assignedSubjectsColumnExists ? ' required' : ''; ?>></textarea>
-                            <small class="text-muted">List the subjects this teacher prefers or is qualified to teach.</small>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Class *</label>
-                            <select class="form-select" name="class_id" id="class_id" required>
-                                <option value="">Select Class</option>
-                                <?php while($class = mysqli_fetch_assoc($classes)): ?>
-                                    <option value="<?php echo $class['id']; ?>"><?php echo htmlspecialchars($class['class_name']); ?></option>
-                                <?php endwhile; ?>
+                            <label class="form-label">Assign to Classes</label>
+                            <select class="form-control select2-multiple" name="class_id[]" id="class_id" multiple="multiple" data-placeholder="Select one or more classes">
+                                <?php 
+                                $classes_for_form = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name");
+                                while ($class = mysqli_fetch_assoc($classes_for_form)) { 
+                                    echo '<option value="' . $class['id'] . '">' . htmlspecialchars($class['class_name']) . '</option>';
+                                }
+                                ?>
                             </select>
+                            <input type="hidden" name="class_names" id="class_names" value="">
+                            <small class="text-muted">You can select multiple classes for this teacher.</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Assigned Subjects</label>
+                            <textarea class="form-control" name="assigned_subjects" id="assigned_subjects" rows="2" placeholder="Enter assigned subject names separated by commas"></textarea>
+                            <small class="text-muted">Enter subject names separated by commas. This also helps auto-assign related subjects.</small>
                         </div>
 
                         <div class="mb-3">
                             <label class="form-label">Joining Date *</label>
-                            <input type="date" class="form-control" name="joining_date" id="joining_date" required>
+                            <input type="date" class="form-control" name="joining_date" id="joining_date" required
+                                   min="2000-01-01" max="<?php echo date('Y-m-d'); ?>" value="<?php echo date('Y-m-d'); ?>">
                         </div>
 
                         <div class="mb-3">
@@ -731,7 +752,17 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
             // Initialize Select2
             $('.select2-multiple').select2({
                 placeholder: "Select subjects",
-                allowClear: true
+                allowClear: true,
+                width: '100%',
+                dropdownParent: $('#teacherModal')
+            });
+
+            $('#teacherForm').on('submit', function() {
+                var selected = $('#class_id').select2('data') || [];
+                var classNames = selected.map(function(item) {
+                    return item.text;
+                });
+                document.getElementById('class_names').value = classNames.join(', ');
             });
         });
 
@@ -741,7 +772,10 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
             document.getElementById('teacher_id').value = '';
             document.getElementById('modalTitle').innerHTML = '<i class="fas fa-plus me-2"></i>Add New Teacher';
             document.getElementById('password').required = true;
-            document.getElementById('photo_preview').innerHTML = '';
+            $('#class_id').val(null).trigger('change');
+            document.getElementById('class_names').value = '';
+            document.getElementById('assigned_subjects').value = '';
+            document.getElementById('photo_preview').innerHTML = '<div class="text-muted">No photo selected</div>';
             new bootstrap.Modal(document.getElementById('teacherModal')).show();
         }
 
@@ -759,28 +793,32 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
                     document.getElementById('email').value = data.email;
                     document.getElementById('phone').value = data.phone;
                     document.getElementById('qualification').value = data.qualification;
-                    <?php if ($assignedSubjectsColumnExists): ?>
+                    $('#class_id').val(data.class_ids || []).trigger('change');
+                    document.getElementById('class_names').value = data.class_name || '';
                     document.getElementById('assigned_subjects').value = data.assigned_subjects || '';
-                    <?php endif; ?>
                     document.getElementById('joining_date').value = data.joining_date;
                     document.getElementById('address').value = data.address;
                     document.getElementById('username').value = data.username;
-                    document.getElementById('class_id').value = data.class_id || '';
                     document.getElementById('password').required = false;
                     document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Teacher';
                     
                     if(data.photo) {
                         document.getElementById('photo_preview').innerHTML = 
                             '<img src="../uploads/teacher-photos/' + data.photo + '" style="max-width: 100px; max-height: 100px; border-radius: 10px;">';
+                    } else {
+                        document.getElementById('photo_preview').innerHTML = '<div class="text-muted">No photo uploaded</div>';
                     }
                     
                     new bootstrap.Modal(document.getElementById('teacherModal')).show();
+                },
+                error: function() {
+                    alert('Error loading teacher data. Please try again.');
                 }
             });
         }
 
-        // View Teacher
-        function viewTeacher(id) {
+        // View Teacher Details
+        function viewTeacherDetails(id) {
             $.ajax({
                 url: 'view-teacher.php',
                 type: 'POST',
@@ -821,12 +859,16 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
 
         // Photo Preview
         document.getElementById('photo').addEventListener('change', function(e) {
-            var reader = new FileReader();
-            reader.onload = function(e) {
-                document.getElementById('photo_preview').innerHTML = 
-                    '<img src="' + e.target.result + '" style="max-width: 100px; max-height: 100px; border-radius: 10px;">';
+            if (this.files && this.files[0]) {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('photo_preview').innerHTML = 
+                        '<img src="' + e.target.result + '" style="max-width: 100px; max-height: 100px; border-radius: 10px;">';
+                }
+                reader.readAsDataURL(this.files[0]);
+            } else {
+                document.getElementById('photo_preview').innerHTML = '<div class="text-muted">No photo selected</div>';
             }
-            reader.readAsDataURL(this.files[0]);
         });
 
         // Export to Excel

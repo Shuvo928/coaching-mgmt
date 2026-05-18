@@ -544,7 +544,7 @@
     <nav class="navbar navbar-expand-lg fixed-top">
         <div class="container">
             <a class="navbar-brand" href="#">
-                Coaching<span style="color: var(--cyan);">Pro</span>
+                Coaching<span style="color: var(--cyan);"></span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -649,39 +649,13 @@
 <section class="section-padding" style="background: var(--light-bg);">
     <div class="container">
         <div class="text-center" data-aos="fade-up">
-            <h2 class="section-title">Our Branch Locations</h2>
+            <h2 class="section-title">Our Branch Location</h2>
             <p class="section-subtitle">Visit our state-of-the-art learning centers across Dhaka</p>
         </div>
         
-        <div class="row g-4">
-            <!-- Dhanmondi Branch -->
-            <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
-                <div class="branch-card">
-                    <h4>Dhanmondi Branch</h4>
-                    <p>Road 27, House 45<br>Dhanmondi, Dhaka 1205</p>
-                    <a href="https://www.google.com/maps?q=23.7465,90.3756" 
-                       target="_blank" 
-                       class="btn-outline-cyan btn-sm">
-                        <i class="fas fa-map-marker-alt me-2"></i>Join free of offline classes
-                    </a>
-                </div>
-            </div>
-            
-            <!-- Mirpur Branch -->
-            <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
-                <div class="branch-card">
-                    <h4>Mirpur Branch</h4>
-                    <p>Road 10, Block C<br>Mirpur, Dhaka 1216</p>
-                    <a href="https://www.google.com/maps?q=23.8065,90.3650" 
-                       target="_blank" 
-                       class="btn-outline-cyan btn-sm">
-                        <i class="fas fa-map-marker-alt me-2"></i>Join free of offline classes
-                    </a>
-                </div>
-            </div>
-            
+        <div class="row justify-content-center mt-4">
             <!-- Uttara Branch -->
-            <div class="col-md-4" data-aos="fade-up" data-aos-delay="300">
+            <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
                 <div class="branch-card">
                     <h4>Uttara Branch</h4>
                     <p>Sector 7, Road 15<br>Uttara, Dhaka 1230</p>
@@ -753,7 +727,7 @@
                         <div class="program-content">
                             <h3>SSC Batch</h3>
                             <p>Complete Board Preparation with intensive revision and model tests</p>
-                            <a href="#" class="program-btn">View Details →</a>
+                            <a href="ssc.php" class="program-btn">View Details →</a>
                         </div>
                         <div class="program-illustration">
                             <!-- use local upload instead of external illustration -->
@@ -767,7 +741,7 @@
                         <div class="program-content">
                             <h3>Class 10</h3>
                             <p>Full Academic Support with chapter-wise preparation and exams</p>
-                            <a href="#" class="program-btn">View Details →</a>
+                            <a href="class10.php" class="program-btn">View Details →</a>
                         </div>
                         <div class="program-illustration">
                             <img src="uploads/download.jpeg" alt="Class 10" height="150">
@@ -780,7 +754,7 @@
                         <div class="program-content">
                             <h3>Class 9</h3>
                             <p>Foundation & Exam Strategy for building strong academic base</p>
-                            <a href="#" class="program-btn">View Details →</a>
+                            <a href="class9.php" class="program-btn">View Details →</a>
                         </div>
                         <div class="program-illustration">
                             <img src="uploads/1571659996.png" alt="Class 9" height="150">
@@ -947,7 +921,7 @@
                         <div class="testimonial-header">
                             <img src="uploads/parent_man.jpeg" class="testimonial-image" alt="Parent">
                             <div>
-                                <div class="testimonial-name">Shahinur Rahman</div>
+                                <div class="testimonial-name">Abbas Rahman</div>
                                 <div class="testimonial-role">Parent of Class 9 Student</div>
                             </div>
                         </div>
@@ -958,15 +932,20 @@
         </div>
     </section>
 
-    <!-- CTA Section -->
-    <section class="cta-section">
-        <div class="container">
-            <h2 class="cta-title" data-aos="fade-up">Start Your SSC Preparation Today</h2>
+   <!-- CTA Section -->
+<section class="cta-section">
+    <div class="container">
+        <h2 class="cta-title" data-aos="fade-up">
+            Start Your SSC Preparation Today
+        </h2>
+
+        <a href="admission.php">
             <button class="cta-button" data-aos="fade-up" data-aos-delay="200">
                 Enroll in Free Class
             </button>
-        </div>
-    </section>
+        </a>
+    </div>
+</section>
 
     <!-- Footer -->
     <footer class="footer">
@@ -975,17 +954,17 @@
                 <div class="col-lg-3 col-md-6 mb-4">
                     <h5>Programs</h5>
                     <ul>
-                        <li><a href="#">SSC Batch 2026</a></li>
-                        <li><a href="#">Class 10 Program</a></li>
-                        <li><a href="#">Class 9 Program</a></li>
-                        <li><a href="#">Admission Info</a></li>
+                        <li><a href="ssc.php">SSC Batch 2026</a></li>
+                        <li><a href="class10.php">Class 10 Program</a></li>
+                        <li><a href="class9.php">Class 9 Program</a></li>
+                        <li><a href="admission.php">Admission Info</a></li>
                     </ul>
                 </div>
                 
                 <div class="col-lg-3 col-md-6 mb-4">
                     <h5>About</h5>
                     <ul>
-                        <li><a href="#">Our Story</a></li>
+                        <li><a href="about.php">Our Story</a></li>
                         <li><a href="#">Teachers</a></li>
                         <li><a href="#">Branches</a></li>
                         <li><a href="#">Careers</a></li>
@@ -997,7 +976,7 @@
                     <ul>
                         <li class="footer-contact">
                             <i class="fas fa-phone"></i>
-                            <span>2987</span>
+                            <span>01305421948</span>
                         </li>
                         <li class="footer-contact">
                             <i class="fas fa-envelope"></i>
@@ -1022,7 +1001,7 @@
             </div>
             
             <div class="copyright">
-                © 2026 Coaching Pro. All rights reserved.
+                © 2026 Coaching . All rights reserved.
             </div>
         </div>
     </footer>
@@ -1289,7 +1268,7 @@
         👋 Need help? Chat with us!
         <div style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Usually replies instantly</div>
     </div>
-    <div class="whatsapp-button" onclick="window.open('https://wa.me/8802987?text=Hi%20Coaching%20Pro,%20I%20need%20help%20with...', '_blank')">
+    <div class="whatsapp-button" onclick="window.open('https://wa.me/8801305421948?text=Hi%20Coaching%20Pro,%20I%20need%20help%20with...', '_blank')">
         <i class="fab fa-whatsapp"></i>
         <span class="tooltip">Chat on WhatsApp</span>
     </div>

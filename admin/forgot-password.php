@@ -127,7 +127,7 @@ function smtpSendMail($to, $subject, $body) {
     return true;
 }
 
-if(isset($_POST['send_email'])) {
+if(isset($_POST['send_otp'])) {
     $email = trim(mysqli_real_escape_string($conn, $_POST['email']));
 
     if(empty($email)) {
@@ -340,7 +340,7 @@ function sanitize($value) {
                         <label for="email" class="form-label">Registered Admin Email</label>
                         <input type="email" id="email" name="email" class="form-control" placeholder="admin@example.com" value="<?php echo sanitize($email); ?>" required>
                     </div>
-                    <button type="submit" name="send_email" class="btn btn-primary">
+                    <button type="submit" name="send_otp" class="btn btn-primary">
                         <i class="fas fa-envelope me-2"></i>Send OTP
                     </button>
                 </form>

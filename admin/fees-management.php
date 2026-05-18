@@ -1,11 +1,14 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+/** @var mysqli $conn */
 require_once '../includes/auth.php';
 
 // Check authentication
 checkAuth();
 checkRole(['admin']);
+
+$pending_admissions = getPendingAdmissionsCount($conn);
 
 // Get current month/year
 $current_month = date('m');
@@ -499,6 +502,13 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     <i class="fas fa-home"></i>
                     <span>Dashboard</span>
                 </a>
+                 <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
+                    <?php if($pending_admissions > 0): ?>
+                        <span class="notification-badge"><?php echo $pending_admissions; ?></span>
+                    <?php endif; ?>
+                </a>
                 <a href="student-management.php" class="menu-item">
                     <i class="fas fa-user-graduate"></i>
                     <span>Student Management</span>
@@ -507,13 +517,14 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="admission-management.php" class="menu-item">
-                    <i class="fas fa-file-alt"></i>
-                    <span>Admissions</span>
-                </a>
-                <a href="attendance.php" class="menu-item">
-                    <i class="fas fa-calendar-check"></i>
-                    <span>Attendance</span>
+               
+                <a href="routine-management.php" class="menu-item">
+    <i class="fas fa-calendar-alt"></i>
+    <span>Routine Management</span>
+</a>
+                <a href="parent-discontinue-requests.php" class="menu-item">
+                    <i class="fas fa-user-slash"></i>
+                    <span>Discontinue Requests</span>
                 </a>
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
@@ -573,9 +584,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     <div class="content-card">
                         <div class="card-header">
                             <h5><i class="fas fa-file-invoice me-2"></i>Admission Fee Collections</h5>
-                            <button class="btn btn-sm btn-outline-primary" onclick="exportAdmissionFees()">
-                                <i class="fas fa-download me-2"></i>Export
-                            </button>
+                            
                         </div>
 
                         <div class="table-responsive">
@@ -641,9 +650,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                             <h5><i class="fas fa-calendar-alt me-2"></i>Monthly Fee Collections</h5>
                             <div>
                                 
-                                <button class="btn btn-sm btn-outline-primary ms-2" onclick="exportMonthlyFees()">
-                                    <i class="fas fa-download me-2"></i>Export
-                                </button>
+                                
                             </div>
                         </div>
 
@@ -651,15 +658,31 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                         <div class="row mb-4">
                             <?php
                             // Monthly Fee Statistics
+                            $next_month_label = date('F Y', strtotime('first day of next month'));
+                            $current_month_label = date('F Y');
+                            $today = date('j');
+                            $show_current_month_due = ($today > 10);
+
                             $monthly_stats_query = "SELECT 
-                                                    (SELECT COUNT(DISTINCT student_id) FROM fee_collections) as total_students,
+                                                    COUNT(DISTINCT student_id) as total_students,
                                                     COUNT(DISTINCT CASE WHEN payment_status = 'paid' THEN student_id END) as paid_count,
                                                     COUNT(DISTINCT CASE WHEN payment_status != 'paid' THEN student_id END) as unpaid_count,
                                                     SUM(expected_amount) as total_expected,
-                                                    SUM(paid_amount) as total_collected,
+                                                    SUM(expected_amount) as total_collected,
                                                     SUM(expected_amount) - SUM(paid_amount) as total_pending
-                                                    FROM fee_collections";
+                                                    FROM fee_collections
+                                                    WHERE fee_month LIKE '%{$next_month_label}%'";
                             $monthly_stats = mysqli_fetch_assoc(mysqli_query($conn, $monthly_stats_query));
+
+                            $current_due_stats_query = "SELECT 
+                                                         SUM(expected_amount - paid_amount) as total_due,
+                                                         COUNT(DISTINCT student_id) as due_students
+                                                         FROM fee_collections
+                                                         WHERE payment_status != 'paid'
+                                                         AND fee_month LIKE '%{$current_month_label}%'";
+                            $current_due_stats = mysqli_fetch_assoc(mysqli_query($conn, $current_due_stats_query));
+                            $current_due_total = $current_due_stats['total_due'] ?? 0;
+                            $current_due_count = $current_due_stats['due_students'] ?? 0;
                             
                             $collection_rate = ($monthly_stats['total_expected'] > 0) ? 
                                               round(($monthly_stats['total_collected'] / $monthly_stats['total_expected']) * 100, 2) : 0;
@@ -712,10 +735,97 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 </div>
                             </div>
                             <div class="col-md-6">
-                                <div class="summary-box" style="background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%); border-left: 4px solid #c62828;">
-                                    <small style="color: #c62828; font-weight: 600;">Total Pending</small>
-                                    <p class="amount-large">৳<?php echo number_format($monthly_stats['total_pending'] ?? 0, 2); ?></p>
+                                <div class="summary-box" style="background: linear-gradient(135deg, #fff3e0 0%, #ffcc80 100%); border-left: 4px solid #f57c00;">
+                                    <small style="color: #f57c00; font-weight: 600;">Total Due</small>
+                                    <p class="amount-large">৳<?php echo number_format($show_current_month_due ? $current_due_total : 0, 2); ?></p>
+                                    <small><?php echo $show_current_month_due ? $current_due_count : 0; ?> students with due</small>
+                                    <?php if (!$show_current_month_due): ?>
+                                        <div style="font-size: 12px; color: #7a4f01; margin-top: 6px;">Due reporting begins after the 10th of <?php echo htmlspecialchars($current_month_label); ?>.</div>
+                                    <?php endif; ?>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div class="content-card mb-4">
+                            <div class="card-header">
+                                <h5><i class="fas fa-exclamation-triangle me-2"></i>Due Collections</h5>
+                                
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-hover" id="monthlyDueTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Student ID</th>
+                                            <th>Student Name</th>
+                                            <th>Class</th>
+                                            <th>Month</th>
+                                            <th>Total Amount</th>
+                                            <th>Paid Amount</th>
+                                            <th>Due Amount</th>
+                                            <th>Status</th>
+                                            <th>Reminder</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php
+                                        $due_fees = false;
+                                        if ($show_current_month_due) {
+                                            $due_fees = mysqli_query($conn, "SELECT 
+                                                                          fc.student_id as student_id, 
+                                                                          CONCAT(s.first_name, ' ', s.last_name) AS student_name, 
+                                                                          c.class_name, 
+                                                                          fc.fee_month,
+                                                                          fc.expected_amount,
+                                                                          fc.paid_amount,
+                                                                          fc.payment_status,
+                                                                          (fc.expected_amount - fc.paid_amount) AS due_amount
+                                                                          FROM fee_collections fc
+                                                                          LEFT JOIN students s ON fc.student_id = s.id
+                                                                          LEFT JOIN classes c ON s.class_id = c.id
+                                                                          WHERE fc.payment_status != 'paid'
+                                                                          AND fc.fee_month LIKE '%{$current_month_label}%'
+                                                                          ORDER BY s.id");
+                                        }
+                                        if ($show_current_month_due && $due_fees && mysqli_num_rows($due_fees) > 0):
+                                            while($due = mysqli_fetch_assoc($due_fees)):
+                                        ?>
+                                        <tr>
+                                            <td><?php echo $due['student_id'] ?? '-'; ?></td>
+                                            <td><?php echo $due['student_name'] ?? '-'; ?></td>
+                                            <td><?php echo $due['class_name'] ?? '-'; ?></td>
+                                            <td><?php echo $due['fee_month'] ?? $next_month_label; ?></td>
+                                            <td class="amount">৳<?php echo number_format($due['expected_amount'] ?? 0, 2); ?></td>
+                                            <td class="amount">৳<?php echo number_format($due['paid_amount'] ?? 0, 2); ?></td>
+                                            <td class="amount text-danger">৳<?php echo number_format($due['due_amount'] ?? 0, 2); ?></td>
+                                            <td>
+                                                <span class="status-badge <?php echo strtolower($due['payment_status'] ?? 'unpaid'); ?>">
+                                                    <?php echo ucfirst($due['payment_status'] ?? 'Unpaid'); ?>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <a href="javascript:void(0)" onclick="sendDueReminder(<?php echo $due['student_id']; ?>)" 
+                                                   class="btn btn-sm btn-outline-info" title="Send due reminder email">
+                                                    <i class="fas fa-sms"></i>
+                                                </a>
+                                            </td>
+                                        </tr>
+                                        <?php 
+                                            endwhile;
+                                        else:
+                                        ?>
+                                        <tr>
+                                            <td colspan="9" class="text-center py-4 text-muted">
+                                                <i class="fas fa-inbox fa-2x mb-2"></i>
+                                                <?php if ($show_current_month_due): ?>
+                                                    <p>No due collections for <?php echo htmlspecialchars($current_month_label); ?></p>
+                                                <?php else: ?>
+                                                    <p>Due calculations begin after the 10th of <?php echo htmlspecialchars($current_month_label); ?>.</p>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
+                                        <?php endif; ?>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
 
@@ -731,13 +841,12 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                         <th>Paid Amount</th>
                                         <th>Due Amount</th>
                                         <th>Status</th>
-                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php
                                     // Get current month for dynamic filtering (next month for upcoming fees)
-                                    $next_month_label = date('M Y', strtotime('first day of next month'));
+                                    $next_month_label = date('F Y', strtotime('first day of next month'));
                                     
                                     $monthly_fees = mysqli_query($conn, "SELECT 
                                                                           fc.student_id as id, 
@@ -768,16 +877,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                             <span class="status-badge <?php echo strtolower($student['payment_status'] ?? 'unpaid'); ?>">
                                                 <?php echo ucfirst($student['payment_status'] ?? 'Unpaid'); ?>
                                             </span>
-                                        </td>
-                                        <td>
-                                            <a href="javascript:void(0)" onclick="sendEmailReminder(<?php echo $student['id']; ?>)" 
-                                               class="btn btn-sm btn-outline-info" title="Send Email to Parent">
-                                                <i class="fas fa-envelope"></i>
-                                            </a>
-                                            <a href="javascript:void(0)" onclick="recordPayment(<?php echo $student['id']; ?>)" 
-                                               class="btn btn-sm btn-outline-primary" title="Record Payment">
-                                                <i class="fas fa-plus"></i>
-                                            </a>
                                         </td>
                                     </tr>
                                     <?php 
@@ -1133,7 +1232,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                 todayHighlight: true
             });
             
-            $('#dueTable').DataTable({
+            $('#dueTable, #monthlyDueTable').DataTable({
                 "pageLength": 25,
                 "ordering": true,
                 "info": true,
@@ -1204,17 +1303,18 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                 $.ajax({
                     url: 'send-fee-reminder.php',
                     type: 'POST',
-                    data: {student_id: student_id, send_email: true},
-                    success: function(response) {
-                        const result = JSON.parse(response);
+                    dataType: 'json',
+                    data: {student_id: student_id, send_email: 'true'},
+                    success: function(result) {
                         if(result.success) {
                             alert(result.message);
                         } else {
                             alert('Error: ' + result.message);
                         }
                     },
-                    error: function() {
-                        alert('Error sending email. Please try again.');
+                    error: function(xhr, status, error) {
+                        var message = xhr.responseText ? xhr.responseText : error;
+                        alert('Error sending email. Please try again.\n' + message);
                     }
                 });
             }
@@ -1229,6 +1329,29 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     data: {student_id: student_id},
                     success: function(response) {
                         alert('Reminder sent successfully!');
+                    }
+                });
+            }
+        }
+
+        // Send Due Reminder Email via SMS icon action
+        function sendDueReminder(student_id) {
+            if(confirm('Send due reminder to the parent via email?')) {
+                $.ajax({
+                    url: 'send-fee-reminder.php',
+                    type: 'POST',
+                    dataType: 'json',
+                    data: {student_id: student_id, send_email: 'true'},
+                    success: function(result) {
+                        if(result.success) {
+                            alert(result.message);
+                        } else {
+                            alert('Error: ' + result.message);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        var message = xhr.responseText ? xhr.responseText : error;
+                        alert('Error sending reminder. Please try again.\n' + message);
                     }
                 });
             }

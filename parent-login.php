@@ -10,6 +10,13 @@ if(isset($_SESSION['parent_id'])) {
 }
 
 $error = '';
+$success = '';
+if (isset($_GET['account_removed'])) {
+    $success = 'Your parent account has been removed successfully.';
+}
+if (isset($_GET['account_remove_failed'])) {
+    $error = 'Account removal failed. Please contact admin if this happens again.';
+}
 
 // Handle login
 if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
@@ -293,6 +300,14 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
 
             <!-- Body -->
             <div class="login-body">
+                <?php if($success): ?>
+                    <div class="alert alert-success alert-dismissible fade show">
+                        <i class="fas fa-check-circle me-2"></i>
+                        <?php echo $success; ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <?php endif; ?>
+
                 <?php if($error): ?>
                     <div class="alert alert-danger alert-dismissible fade show">
                         <i class="fas fa-exclamation-circle me-2"></i>
@@ -318,6 +333,12 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                     <button type="submit" name="login" class="btn-login">
                         <i class="fas fa-sign-in-alt me-2"></i>Login to Parent Portal
                     </button>
+
+                    <div class="text-center mt-3">
+                        <a href="forgot-password-parent.php" class="text-decoration-none">
+                            <i class="fas fa-key me-1"></i>Forgot Password?
+                        </a>
+                    </div>
                 </form>
 
                 <div class="features">

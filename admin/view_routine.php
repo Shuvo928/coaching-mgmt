@@ -33,6 +33,7 @@ $result = mysqli_query($conn, $sql);
                 <th>Class</th>
                 <th>Subject</th>
                 <th>Teacher</th>
+                <th>Room</th>
                 <th>Time</th>
             </tr>
         </thead>
@@ -44,6 +45,7 @@ $result = mysqli_query($conn, $sql);
                 <td><?php echo $row['class_name']; ?></td>
                 <td><?php echo $row['subject_name']; ?></td>
                 <td><?php echo $row['first_name'] . " " . $row['last_name']; ?></td>
+                <td><?php echo htmlspecialchars($row['room']); ?></td>
                 <td><?php echo $row['start_time'] . " - " . $row['end_time']; ?></td>
             </tr>
         <?php } ?>

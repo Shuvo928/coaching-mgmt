@@ -7,14 +7,46 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'admin') {
     exit();
 }
 
-$class_id = $_POST['class_id'];
-$section_id = $_POST['section_id'];
-$subject_id = $_POST['subject_id'];
-$teacher_id = $_POST['teacher_id'];
-$day = $_POST['day'];
-$start_time = $_POST['start_time'];
-$end_time = $_POST['end_time'];
-$room = $_POST['room'] ?? "";
+$class_id = intval($_POST['class_id']);
+$section_id = intval($_POST['section_id']);
+$subject_id = intval($_POST['subject_id']);
+$teacher_id = intval($_POST['teacher_id']);
+$day = mysqli_real_escape_string($conn, trim($_POST['day']));
+$start_time = mysqli_real_escape_string($conn, trim($_POST['start_time']));
+$end_time = mysqli_real_escape_string($conn, trim($_POST['end_time']));
+$room = mysqli_real_escape_string($conn, trim($_POST['room'] ?? ""));
+
+/* =========================
+   TEACHER / SUBJECT / CLASS VALIDATION
+========================= */
+$class_check = mysqli_query($conn, "SELECT id FROM classes WHERE id = $class_id LIMIT 1");
+if (!$class_check || mysqli_num_rows($class_check) === 0) {
+    echo "<script>alert('⚠ Invalid class selected.'); window.history.back();</script>";
+    exit();
+}
+
+$subject_check = mysqli_query($conn, "SELECT id FROM subjects WHERE id = $subject_id LIMIT 1");
+if (!$subject_check || mysqli_num_rows($subject_check) === 0) {
+    echo "<script>alert('⚠ Invalid subject selected.'); window.history.back();</script>";
+    exit();
+}
+
+$teacher_check = mysqli_query($conn, "SELECT id FROM teachers WHERE id = $teacher_id AND status = 1 LIMIT 1");
+if (!$teacher_check || mysqli_num_rows($teacher_check) === 0) {
+    echo "<script>alert('⚠ Selected teacher is not registered or active.'); window.history.back();</script>";
+    exit();
+}
+
+$eligibility_sql = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id";
+$column_check = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+if ($column_check && mysqli_num_rows($column_check) > 0) {
+    $eligibility_sql .= " AND class_id = $class_id";
+}
+$eligibility_check = mysqli_query($conn, $eligibility_sql);
+if (!$eligibility_check || mysqli_num_rows($eligibility_check) === 0) {
+    echo "<script>alert('⚠ Selected teacher is not assigned to this subject/class combination.'); window.history.back();</script>";
+    exit();
+}
 
 /* =========================
    CONFLICT CHECK

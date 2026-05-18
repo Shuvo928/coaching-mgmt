@@ -43,8 +43,11 @@ if(isset($_GET['delete_subject']) && is_numeric($_GET['delete_subject'])) {
     exit();
 }
 
+// Get selected class from query string
+$selected_class_id = isset($_GET['selected_class_id']) ? intval($_GET['selected_class_id']) : 0;
+
 // Get all classes
-$classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name, section");
+$classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
 
 // Get all subjects with class info
 $subjects = mysqli_query($conn, "SELECT s.*, c.class_name 
@@ -502,6 +505,15 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                         <i class="fas fa-plus me-2"></i>Add New Class
                     </button>
                 </div>
+                <?php if ($selected_class_id > 0): 
+                    $selected_class_result = mysqli_query($conn, "SELECT class_name FROM classes WHERE id = $selected_class_id LIMIT 1");
+                    $selected_class = mysqli_fetch_assoc($selected_class_result);
+                    if ($selected_class): ?>
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Showing assigned class: <strong><?php echo htmlspecialchars($selected_class['class_name']); ?></strong>
+                    </div>
+                <?php endif; endif; ?>
 
                 <div class="table-responsive">
                     <table class="table table-hover" id="classesTable">
@@ -529,10 +541,10 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                                 $subject_count = mysqli_query($conn, "SELECT COUNT(*) as total FROM subjects WHERE class_id = {$class['id']}");
                                 $subjects_count = mysqli_fetch_assoc($subject_count);
                             ?>
-                            <tr>
+                            <tr <?php echo ($selected_class_id > 0 && $class['id'] == $selected_class_id) ? 'style="background: #e8f7ff;"' : ''; ?>>
                                 <td><?php echo $sno++; ?></td>
-                                <td><span class="class-badge"><?php echo $class['class_name']; ?></span></td>
-                                <td>Section <?php echo $class['section']; ?></td>
+                                <td><span class="class-badge"><?php echo htmlspecialchars($class['class_name']); ?></span></td>
+                                <td><?php echo isset($class['section']) ? 'Section ' . htmlspecialchars($class['section']) : '-'; ?></td>
                                 <td><?php echo $students['total']; ?></td>
                                 <td><?php echo $subjects_count['total']; ?></td>
                                 <td><?php echo date('d-m-Y', strtotime($class['created_at'])); ?></td>

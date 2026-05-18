@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/parent_helpers.php';
+
 // Authentication check middleware
 function checkAuth() {
     if(!isset($_SESSION['user_id'])) {
@@ -22,7 +24,7 @@ function checkRole($allowed_roles = []) {
 
 
 // Get current user details
-function getCurrentUser($conn) {
+function getCurrentUser(mysqli $conn) {
     $user_id = $_SESSION['user_id'];
     $query = "SELECT u.*, 
               CASE 

@@ -1,9 +1,11 @@
 <?php
 session_start();
+/** @var \mysqli|null $conn */
+$conn = null;
 require_once '../includes/db.php';
 
 // Function to generate unique student ID
-function generateStudentID($conn) {
+function generateStudentID(mysqli $conn) {
     $prefix = 'STU';
     $year = date('Y');
     $pattern = $prefix . $year . '%';
@@ -34,7 +36,7 @@ function generateStudentID($conn) {
 $classesSectionColumn = mysqli_query($conn, "SHOW COLUMNS FROM classes LIKE 'section'");
 $classesHasSection = ($classesSectionColumn && mysqli_num_rows($classesSectionColumn) > 0);
 
-function redirectWithError($message) {
+function redirectWithError(string $message) {
     $_SESSION['error'] = $message;
     header("Location: student-management.php");
     exit();
@@ -44,10 +46,10 @@ if(isset($_POST['submit'])) {
     $student_id = $_POST['student_id'] ?? '';
     $first_name = mysqli_real_escape_string($conn, $_POST['first_name']);
     $last_name = mysqli_real_escape_string($conn, $_POST['last_name']);
-    $father_name = mysqli_real_escape_string($conn, $_POST['father_name']);
-    $mother_name = mysqli_real_escape_string($conn, $_POST['mother_name']);
+    $father_name = isset($_POST['father_name']) ? mysqli_real_escape_string($conn, $_POST['father_name']) : null;
+    $mother_name = isset($_POST['mother_name']) ? mysqli_real_escape_string($conn, $_POST['mother_name']) : null;
     $phone = mysqli_real_escape_string($conn, $_POST['phone']);
-    $dob = $_POST['dob'];
+    $dob = array_key_exists('dob', $_POST) ? $_POST['dob'] : null;
     $gender = $_POST['gender'] ?: null;
     $class_label = mysqli_real_escape_string($conn, $_POST['class_label']);
     $admission_date = $_POST['admission_date'];
@@ -156,11 +158,13 @@ if(isset($_POST['submit'])) {
 
             while($attempts < $maxAttempts) {
                 $student_unique_id = generateStudentID($conn);
+                $student_insert_father_name = $father_name !== null ? $father_name : '';
+                $student_insert_mother_name = $mother_name !== null ? $mother_name : '';
                 $student_query = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, 
                                   mother_name, phone, dob, gender, address, photo, class_id, 
                                   admission_date, status) 
                                   VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', 
-                                  '$father_name', '$mother_name', '$phone', $dob_sql, $gender_sql, 
+                                  '$student_insert_father_name', '$student_insert_mother_name', '$phone', $dob_sql, $gender_sql, 
                                   '$address', $photo_sql, $class_id_sql, $admission_date_sql, 1)";
 
                 if(mysqli_query($conn, $student_query)) {
@@ -191,7 +195,7 @@ if(isset($_POST['submit'])) {
     } else {
         // Update existing student
         // Get current photo
-        $photo_query = "SELECT photo FROM students WHERE id = $student_id";
+        $photo_query = "SELECT photo, class_id, father_name, mother_name, dob FROM students WHERE id = $student_id";
         $photo_result = mysqli_query($conn, $photo_query);
         $current = mysqli_fetch_assoc($photo_result);
         
@@ -203,46 +207,23 @@ if(isset($_POST['submit'])) {
                 unlink("../uploads/student-photos/".$current['photo']);
             }
         }
-        
-        // Prepare optional values for update
+
+        // Preserve existing student details when fields are not part of the edit form
+        if($father_name === null) {
+            $father_name = $current['father_name'];
+        }
+        if($mother_name === null) {
+            $mother_name = $current['mother_name'];
+        }
+        if($dob === null) {
+            $dob = $current['dob'];
+        }
+
+        $class_id_sql = !empty($current['class_id']) ? (int)$current['class_id'] : 'NULL';
         $dob_sql = !empty($dob) ? "'" . mysqli_real_escape_string($conn, $dob) . "'" : 'NULL';
         $gender_sql = $gender ? "'" . mysqli_real_escape_string($conn, $gender) . "'" : 'NULL';
-        $class_id_sql = $class_id ? (int)$class_id : 'NULL';
         $admission_date_sql = !empty($admission_date) ? "'" . mysqli_real_escape_string($conn, $admission_date) . "'" : 'NULL';
         $photo_sql = !empty($photo) ? "'" . mysqli_real_escape_string($conn, $photo) . "'" : 'NULL';
-
-        // Update query
-        $class_id = null;
-        $class_label_value = trim($class_label);
-        if(!empty($class_label_value)) {
-            $parts = explode('-', $class_label_value, 2);
-            $class_name = trim($parts[0]);
-            $class_section = isset($parts[1]) ? trim($parts[1]) : '';
-            
-            // Build dynamic query based on whether section column exists
-            if($classesHasSection && !empty($class_section)) {
-                $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' AND section = '$class_section' LIMIT 1";
-            } else {
-                $class_query = "SELECT id FROM classes WHERE class_name = '$class_name' LIMIT 1";
-            }
-            
-            $class_result = mysqli_query($conn, $class_query);
-            if($class_result && mysqli_num_rows($class_result) > 0) {
-                $class_row = mysqli_fetch_assoc($class_result);
-                $class_id = $class_row['id'];
-            } else {
-                // Insert new class
-                if($classesHasSection) {
-                    $insert_class = "INSERT INTO classes (class_name, section) VALUES ('$class_name', '$class_section')";
-                } else {
-                    $insert_class = "INSERT INTO classes (class_name) VALUES ('$class_name')";
-                }
-                if(mysqli_query($conn, $insert_class)) {
-                    $class_id = mysqli_insert_id($conn);
-                }
-            }
-        }
-        $class_id_sql = $class_id ? (int)$class_id : 'NULL';
 
         $update_query = "UPDATE students SET 
                          first_name = '$first_name',

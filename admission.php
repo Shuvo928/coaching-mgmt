@@ -897,7 +897,7 @@ $fees = [
                 <div class="group-btn humanities" onclick="selectGroup('Humanities')">
                     <i class="fas fa-landmark fa-2x"></i>
                     <h5>Humanities</h5>
-                    <small>History, Geography, Civics, Economics</small>
+                    <small>History, Geography</small>
                 </div>
                 <div class="group-btn commerce" onclick="selectGroup('Commerce')">
                     <i class="fas fa-chart-line fa-2x"></i>

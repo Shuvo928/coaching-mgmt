@@ -13,11 +13,12 @@ if(isset($_POST['id'])) {
     $teacher = mysqli_fetch_assoc($result);
     
     // Get assigned subjects
-    $subject_query = "SELECT s.subject_name, c.class_name 
+    $subject_query = "SELECT DISTINCT s.subject_name, c.class_name 
                      FROM teacher_subjects ts
                      JOIN subjects s ON ts.subject_id = s.id
                      JOIN classes c ON s.class_id = c.id
-                     WHERE ts.teacher_id = $id";
+                     WHERE ts.teacher_id = $id
+                     ORDER BY c.class_name, s.subject_name";
     $subject_result = mysqli_query($conn, $subject_query);
     ?>
     
@@ -37,10 +38,6 @@ if(isset($_POST['id'])) {
         <tr>
             <th width="40%">Qualification</th>
             <td><?php echo $teacher['qualification']; ?></td>
-        </tr>
-        <tr>
-            <th>Assigned Subjects</th>
-            <td><?php echo $teacher['assigned_subjects'] ?? 'N/A'; ?></td>
         </tr>
         <tr>
             <th>Phone</th>
@@ -72,6 +69,8 @@ if(isset($_POST['id'])) {
                         echo $sub['class_name'] . ' - ' . $sub['subject_name'];
                         echo '</span>';
                     }
+                } elseif (!empty(trim($teacher['assigned_subjects']))) {
+                    echo '<span>' . htmlspecialchars($teacher['assigned_subjects']) . '</span>';
                 } else {
                     echo '<span class="text-muted">No subjects assigned</span>';
                 }

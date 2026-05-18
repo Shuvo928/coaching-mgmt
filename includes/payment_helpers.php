@@ -29,6 +29,20 @@ function createPaymentHistoryTable($conn) {
     return mysqli_query($conn, $query);
 }
 
+function ensureSmsLogsTableExists($conn) {
+    $query = "CREATE TABLE IF NOT EXISTS sms_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        mobile_number VARCHAR(50),
+        message TEXT,
+        type VARCHAR(50),
+        status VARCHAR(50),
+        api_response TEXT NULL,
+        sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
+    return mysqli_query($conn, $query);
+}
+
 function recordPaymentHistory($conn, $student_id, $class_id, $fee_collection_id, $transaction_id, 
                              $receipt_no, $payment_method, $amount_paid, $fee_type, $month_name) {
     $student_id = (int)$student_id;

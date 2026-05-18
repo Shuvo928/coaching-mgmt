@@ -530,15 +530,17 @@ if(isset($_POST['login'])) {
         const forgotPasswordContainer = document.querySelector('.forgot-password');
         const forgotPasswordLink = document.querySelector('.forgot-password a');
         const roleForgotLinks = {
-            admin: 'forgot-password.php'
+            admin: 'forgot-password.php',
+            teacher: 'forgot-password-teacher.php',
+            student: 'forgot-password-student.php'
         };
 
         function updateForgotPasswordLink(role) {
             if (!forgotPasswordContainer || !forgotPasswordLink) return;
 
-            if (role === 'admin') {
+            if (roleForgotLinks[role]) {
                 forgotPasswordContainer.style.display = 'block';
-                forgotPasswordLink.href = roleForgotLinks.admin;
+                forgotPasswordLink.href = roleForgotLinks[role];
             } else {
                 forgotPasswordContainer.style.display = 'none';
             }

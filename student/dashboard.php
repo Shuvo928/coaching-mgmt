@@ -2,6 +2,9 @@
 session_start();
 require_once '../includes/db.php';
 require_once '../includes/auth.php';
+require_once '../includes/notification_helpers.php';
+
+/** @var \mysqli $conn */
 
 checkAuth();
 checkRole(['student']);
@@ -48,7 +51,7 @@ $overall_stats = [
     'total_results' => 0
 ];
 
-function getBranchName($address) {
+function getBranchName(string $address): string {
     $address = strtolower($address);
     if (strpos($address, 'dhanmondi') !== false) {
         return 'Dhanmondi Branch';
@@ -65,7 +68,7 @@ function getBranchName($address) {
     return 'Nearest Branch';
 }
 
-function getPerformanceComment($percentage) {
+function getPerformanceComment(?float $percentage): string {
     if ($percentage === null) {
         return 'No result yet';
     }
@@ -84,27 +87,48 @@ function getPerformanceComment($percentage) {
     return 'Poor';
 }
 
-function formatTimeRange($start, $end) {
-    if (empty($start) && empty($end)) {
-        return 'TBA';
+function formatTimeRange(?string $start, ?string $end): string {
+    if (empty($start) || empty($end)) {
+        return 'Not assigned yet';
     }
-    if (empty($start)) {
-        return date('g:i A', strtotime($end));
+    return date('g:i A', strtotime($start)) . ' – ' . date('g:i A', strtotime($end));
+}
+
+function formatRoutineCell(mixed $value): string {
+    $value = trim((string)($value ?? ''));
+    return $value === '' ? 'Not assigned yet' : htmlspecialchars($value);
+}
+
+function getTeacherDisplayName(\mysqli $conn, string $teacherName): string {
+    $teacherName = trim((string)$teacherName);
+    if ($teacherName === '') {
+        return 'Not assigned yet';
     }
-    if (empty($end)) {
-        return date('g:i A', strtotime($start));
+
+    $sql = "SELECT 1 FROM teachers WHERE status = 1 AND LOWER(CONCAT(TRIM(first_name), ' ', TRIM(last_name))) = LOWER(?) LIMIT 1";
+    $stmt = mysqli_prepare($conn, $sql);
+    if (!$stmt) {
+        return 'Not assigned yet';
     }
-    return date('g:i A', strtotime($start)) . ' - ' . date('g:i A', strtotime($end));
+    mysqli_stmt_bind_param($stmt, 's', $teacherName);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $exists = $result && mysqli_num_rows($result) > 0;
+    mysqli_stmt_close($stmt);
+
+    return $exists ? htmlspecialchars($teacherName) : 'Not assigned yet';
 }
 
 if (!empty($user['id'])) {
     // Build dynamic SELECT for class section if column exists
     $sectionSelect = $classesHasSection ? 'c.section' : "'' AS section";
     
-    $student_query = "SELECT s.*, c.class_name, $sectionSelect, aa.program, aa.`group` AS group_name, aa.monthly_fee, aa.transaction_id 
+    $student_query = "SELECT s.*, c.class_name, $sectionSelect, COALESCE(g.group_name, aa.`group`, 'Unassigned') AS group_name, aa.program, aa.monthly_fee, aa.transaction_id, u.username, u.created_at AS account_created 
                       FROM students s 
                       LEFT JOIN classes c ON s.class_id = c.id
+                      LEFT JOIN groups g ON s.group_id = g.id
                       LEFT JOIN admission_applications aa ON s.phone = aa.$admissionPhoneField 
+                      LEFT JOIN users u ON s.user_id = u.id
                       WHERE s.user_id = " . intval($user['id']) . " LIMIT 1";
     $student_result = mysqli_query($conn, $student_query);
     $student = mysqli_fetch_assoc($student_result);
@@ -112,21 +136,43 @@ if (!empty($user['id'])) {
     if ($student) {
         $branch_name = getBranchName($student['address'] ?? '');
 
-        // Build routine query with conditional exam_types JOIN
-        if ($examTypesTableExists) {
-            $routine_query = "SELECT er.*, et.exam_name, sub.subject_name 
-                              FROM exam_routine er 
-                              LEFT JOIN exam_types et ON er.exam_type_id = et.id 
-                              LEFT JOIN subjects sub ON er.subject_id = sub.id 
-                              WHERE er.class_id = " . intval($student['class_id']) . " 
-                              ORDER BY er.exam_date ASC LIMIT 6";
-        } else {
-            $routine_query = "SELECT er.*, NULL AS exam_name, sub.subject_name 
-                              FROM exam_routine er 
-                              LEFT JOIN subjects sub ON er.subject_id = sub.id 
-                              WHERE er.class_id = " . intval($student['class_id']) . " 
-                              ORDER BY er.exam_date ASC LIMIT 6";
+        // Build class_group name from student's class and group
+        // Extract class number and group from the student record
+        $class_number = '';
+        $group_name = $student['group_name'] ?? '';
+        
+        // Parse class name to get class number (e.g., "Class 9", "Class 10", "SSC Batch")
+        if (!empty($student['class_name'])) {
+            if (strpos($student['class_name'], 'SSC') !== false || strpos($student['class_name'], 'ssc') !== false) {
+                $class_number = 'SSC Batch';
+            } else {
+                preg_match('/Class\s+(\d+)/', $student['class_name'], $matches);
+                if (!empty($matches[1])) {
+                    $class_number = 'Class ' . $matches[1];
+                }
+            }
         }
+        
+        // Build the class_group string to match with routine table
+        if (!empty($class_number) && !empty($group_name)) {
+            // Normalize group names to title case (Science Group, Commerce Group, Humanities Group)
+            $group_display = ucfirst(strtolower($group_name));
+            if (stripos($group_display, 'group') === false) {
+                $group_display .= ' Group';
+            }
+            $expected_class_group = $class_number . ' — ' . $group_display;
+        }
+
+        // Query routine from the new routine table
+        if (!empty($expected_class_group)) {
+            $routine_query = "SELECT * FROM `routine` 
+                              WHERE class_group = '" . mysqli_real_escape_string($conn, $expected_class_group) . "' 
+                              ORDER BY FIELD(day, 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'), start_time";
+        } else {
+            // Fallback if class_group cannot be determined
+            $routine_query = "SELECT * FROM `routine` LIMIT 0";
+        }
+
         $routine_result = mysqli_query($conn, $routine_query);
         while ($routine = mysqli_fetch_assoc($routine_result)) {
             $class_routine[] = $routine;
@@ -140,7 +186,7 @@ if (!empty($user['id'])) {
                             WHEN r.test_type = 'exam' THEN 'Exam'
                             ELSE 'Test'
                           END AS test_name,
-                          sub.subject_name, r.created_at AS test_date
+                          sub.subject_name, r.exam_date AS exam_date
                           FROM results r 
                           LEFT JOIN subjects sub ON r.subject_id = sub.id 
                           WHERE r.student_id = " . intval($student['id']) . " 
@@ -193,6 +239,34 @@ if (!empty($user['id'])) {
         .profile-card { padding: 30px; }
         .profile-avatar { width: 100px; height: 100px; border-radius: 50%; background: #3b82f6; color: white; display: flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 20px; }
         .info-list dt { font-weight: 600; }
+        
+        /* Notifications Bell */
+        .notifications-bell { position: relative; cursor: pointer; font-size: 1.3rem; margin-right: 15px; color: #333; }
+        .notifications-bell:hover { color: #667eea; transform: scale(1.1); transition: all 0.2s ease; }
+        .notification-badge { position: absolute; top: -8px; right: -8px; background: #ff4757; color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; border: 2px solid white; }
+        .notification-badge.hidden { display: none; }
+        .notifications-popup { position: absolute; top: 50px; right: 0; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15); width: 380px; max-height: 500px; overflow-y: auto; z-index: 1050; display: none; }
+        .notifications-popup.show { display: block; animation: slideDown 0.3s ease; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .notification-header { padding: 15px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; font-weight: 600; background: #f8f9fa; }
+        .notification-item { padding: 12px 15px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.2s ease; position: relative; }
+        .notification-item:hover { background: #f8f9fa; }
+        .notification-item.unread { background: #f0f7ff; }
+        .notification-item.unread::before { content: ''; position: absolute; left: 0; width: 4px; height: 100%; background: #667eea; }
+        .notification-item.unread { padding-left: 20px; }
+        .notification-title { font-weight: 600; color: #2c3e66; margin-bottom: 4px; font-size: 0.95rem; }
+        .notification-message { color: #666; font-size: 0.85rem; margin-bottom: 6px; line-height: 1.4; }
+        .notification-time { font-size: 0.75rem; color: #999; }
+        .notification-actions { display: flex; gap: 8px; margin-top: 8px; }
+        .notification-actions button { padding: 4px 8px; font-size: 0.75rem; border: none; border-radius: 4px; cursor: pointer; }
+        .notification-actions .btn-view { background: #667eea; color: white; }
+        .notification-actions .btn-view:hover { background: #5568d3; }
+        .notification-actions .btn-close { background: #e0e0e0; color: #666; }
+        .notification-actions .btn-close:hover { background: #d0d0d0; }
+        .notification-empty { padding: 30px 15px; text-align: center; color: #999; font-size: 0.9rem; }
+        .notification-footer { padding: 12px 15px; text-align: center; border-top: 1px solid #e0e0e0; font-size: 0.85rem; }
+        .notification-footer a { color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer; }
+        .notification-footer a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -202,7 +276,25 @@ if (!empty($user['id'])) {
                 <h1>Welcome, <?php echo htmlspecialchars($user['first_name'] ?? 'Student'); ?></h1>
                 <p class="text-muted">This is your student dashboard.</p>
             </div>
-            <a href="logout.php" class="btn btn-outline-danger"><i class="fas fa-sign-out-alt me-2"></i>Logout</a>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <div class="notifications-bell" id="notificationsBell" title="Notifications">
+                    <i class="fas fa-bell"></i>
+                    <span class="notification-badge hidden" id="notificationBadge">0</span>
+                    <div class="notifications-popup" id="notificationsPopup">
+                        <div class="notification-header">
+                            <span>Notifications</span>
+                            <button style="background: none; border: none; color: #666; cursor: pointer; font-size: 1.2rem;" onclick="closeNotificationsPopup()">&times;</button>
+                        </div>
+                        <div id="notificationsContainer">
+                            <div class="notification-empty">Loading notifications...</div>
+                        </div>
+                        <div class="notification-footer">
+                            <a onclick="markAllAsRead(); return false;">Mark all as read</a>
+                        </div>
+                    </div>
+                </div>
+                <a href="logout.php" class="btn btn-outline-danger"><i class="fas fa-sign-out-alt me-2"></i>Logout</a>
+            </div>
         </div>
 
         <div class="card mb-4 p-4 text-dark" style="background: #ffffff; border-radius: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.04);">
@@ -210,6 +302,99 @@ if (!empty($user['id'])) {
                 "Every number you see here tells a story — your attendance, your results, your progress. These are not just records; they are reflections of your effort, your discipline, and your growth. Every class you attend is a step forward. Every improvement, no matter how small, is a victory."
             </p>
         </div>
+
+        <!-- Announcements Section -->
+        <div class="card mb-4 p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="fas fa-bullhorn me-2 text-warning"></i>📢 Latest Announcements</h5>
+                <span class="badge bg-secondary" id="announcementCount">Loading...</span>
+            </div>
+            <div id="announcementsContainer" style="max-height: 400px; overflow-y: auto;">
+                <p class="text-muted text-center" id="loadingMsg">
+                    <i class="fas fa-spinner fa-spin me-2"></i>Loading announcements...
+                </p>
+            </div>
+        </div>
+
+        <script>
+        // Fetch announcements on page load
+        fetch('../api/get-announcements.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            const container = document.getElementById('announcementsContainer');
+            const loadingMsg = document.getElementById('loadingMsg');
+            const countBadge = document.getElementById('announcementCount');
+            
+            if (data.success && data.announcements.length > 0) {
+                countBadge.textContent = data.count + ' Announcement' + (data.count !== 1 ? 's' : '');
+                loadingMsg.remove();
+                
+                let html = '';
+                data.announcements.forEach(ann => {
+                    const date = new Date(ann.created_at);
+                    const dateStr = date.toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                    });
+                    const timeStr = date.toLocaleTimeString('en-US', { 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                    });
+                    
+                    html += `
+                        <div class="border rounded p-3 mb-3" style="background: #f8f9fa;">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div style="flex: 1;">
+                                    <h6 style="font-weight: 600; color: #2c3e66; margin-bottom: 0.5rem;">
+                                        ${escapeHtml(ann.title)}
+                                    </h6>
+                                    <p style="color: #495057; margin: 0.5rem 0; font-size: 0.9rem;">
+                                        ${escapeHtml(ann.message.substring(0, 100))}${ann.message.length > 100 ? '...' : ''}
+                                    </p>
+                                    <small style="color: #6c757d;">
+                                        <i class="far fa-calendar me-1"></i>${dateStr} at ${timeStr} 
+                                        <span style="margin-left: 10px;">
+                                            <i class="fas fa-user me-1"></i><strong>${escapeHtml(ann.teacher_name)}</strong>
+                                        </span>
+                                    </small>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-info ms-2 view-announcement-btn" data-title="${escapeHtml(ann.title)}" data-message="${escapeHtml(ann.message)}" data-date="${dateStr}" data-time="${timeStr}">
+                                    <i class="fas fa-eye"></i> View
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+                container.querySelectorAll('.view-announcement-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        viewAnnouncement(btn.dataset.title, btn.dataset.message, btn.dataset.date, btn.dataset.time);
+                    });
+                });
+            } else {
+                countBadge.textContent = '0 Announcements';
+                loadingMsg.innerHTML = '<i class="fas fa-info-circle me-2"></i>No announcements at the moment.';
+            }
+        })
+        .catch(err => {
+            console.error('Error fetching announcements:', err);
+            document.getElementById('loadingMsg').innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Unable to load announcements.';
+        });
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function viewAnnouncement(title, message, date, time) {
+            alert('📢 ' + title + '\n\n' + message + '\n\nPublished: ' + date + ' at ' + time);
+        }
+        </script>
 
         <div class="row g-4">
             <div class="col-lg-4">
@@ -230,11 +415,11 @@ if (!empty($user['id'])) {
                             <dt class="col-sm-4">Class</dt>
                             <dd class="col-sm-8"><?php echo htmlspecialchars($student['class_name'] ?? 'N/A'); ?></dd>
                             <dt class="col-sm-4">Group</dt>
-                            <dd class="col-sm-8"><?php echo htmlspecialchars($student['section'] ?? 'N/A'); ?></dd>
-                            <dt class="col-sm-4">Branch</dt>
-                            <dd class="col-sm-8"><?php echo htmlspecialchars($branch_name); ?></dd>
-                            <dt class="col-sm-4">Class Time</dt>
-                            <dd class="col-sm-8"><?php echo htmlspecialchars($class_time); ?></dd>
+                            <dd class="col-sm-8"><?php echo htmlspecialchars($student['group_name'] ?? 'N/A'); ?></dd>
+                            <dt class="col-sm-4">Email</dt>
+                            <dd class="col-sm-8"><?php echo htmlspecialchars($student['email'] ?? 'N/A'); ?></dd>
+                            <dt class="col-sm-4">Assigned Date</dt>
+                            <dd class="col-sm-8"><?php echo !empty($student['account_created']) ? date('d-m-Y h:i A', strtotime($student['account_created'])) : 'N/A'; ?></dd>
                             
                             
                             <dt class="col-sm-4">Phone</dt>
@@ -249,33 +434,47 @@ if (!empty($user['id'])) {
 
         <div class="row g-4 mt-3">
             <div class="col-lg-6">
-                <div class="card p-4">
-                    <h5 class="mb-3">Class Routine</h5>
+        <div class="card p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">📚 Your Class Routine</h5>
+                        <a href="view-routine.php" class="btn btn-sm btn-primary" style="background: #667eea; border: none;">
+                            <i class="fas fa-calendar-alt me-1"></i> View Full Schedule
+                        </a>
+                    </div>
                     <?php if (!empty($class_routine)): ?>
                         <div class="table-responsive">
-                            <table class="table table-bordered table-striped mb-0">
-                                <thead>
+                            <table class="table table-bordered table-hover table-striped mb-0">
+                                <thead class="table-dark">
                                     <tr>
-                                        <th>Date</th>
-                                        <th>Exam</th>
-                                        <th>Subject</th>
-                                        <th>Time</th>
+                                        <th style="width: 12%;">📅 Day</th>
+                                        <th style="width: 20%;">📖 Subject</th>
+                                        <th style="width: 18%;">👨‍🏫 Teacher</th>
+                                        <th style="width: 10%;">🚪 Room</th>
+                                        <th style="width: 20%;">⏰ Time</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach ($class_routine as $routine_item): ?>
                                         <tr>
-                                            <td><?php echo htmlspecialchars(date('d M, Y', strtotime($routine_item['exam_date']))); ?></td>
-                                            <td><?php echo htmlspecialchars($routine_item['exam_name'] ?? 'N/A'); ?></td>
-                                            <td><?php echo htmlspecialchars($routine_item['subject_name'] ?? 'N/A'); ?></td>
-                                            <td><?php echo htmlspecialchars(formatTimeRange($routine_item['start_time'], $routine_item['end_time'])); ?></td>
+                                            <td><strong><?php echo formatRoutineCell($routine_item['day'] ?? ''); ?></strong></td>
+                                            <td><?php echo formatRoutineCell($routine_item['subject'] ?? ''); ?></td>
+                                            <td><?php echo getTeacherDisplayName($conn, $routine_item['teacher'] ?? ''); ?></td>
+                                            <td><span class="badge bg-info"><?php echo formatRoutineCell($routine_item['room'] ?? ''); ?></span></td>
+                                            <td>
+                                                <?php 
+                                                    echo formatTimeRange($routine_item['start_time'] ?? '', $routine_item['end_time'] ?? '');
+                                                ?>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
                         </div>
                     <?php else: ?>
-                        <p class="text-muted">No class routine available for your current class yet.</p>
+                        <div class="alert alert-info" role="alert">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>No class routine available yet.</strong> Your routine will appear here once it's set up for your class and group.
+                        </div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -297,6 +496,7 @@ if (!empty($user['id'])) {
                                         <th>Exam</th>
                                         <th>Subject</th>
                                         <th>Marks</th>
+                                        <th>Exam Date</th>
                                         <th>Comment</th>
                                     </tr>
                                 </thead>
@@ -318,12 +518,17 @@ if (!empty($user['id'])) {
                                             <td><?php echo htmlspecialchars($result['test_name'] ?? 'Test'); ?></td>
                                             <td><?php echo htmlspecialchars($result['subject_name'] ?? 'N/A'); ?></td>
                                             <td><?php 
-                                                if ($resultsMarksColumns && isset($result['marks_obtained']) && isset($result['total_marks'])) {
-                                                    echo htmlspecialchars($result['marks_obtained'] . '/' . $result['total_marks']); 
+                                                if (isset($result['marks_obtained']) && $result['marks_obtained'] !== null) {
+                                                    if (isset($result['total_marks']) && $result['total_marks'] !== null && $result['total_marks'] > 0) {
+                                                        echo htmlspecialchars($result['marks_obtained'] . '/' . $result['total_marks']);
+                                                    } else {
+                                                        echo htmlspecialchars($result['marks_obtained'] . '/100');
+                                                    }
                                                 } else {
                                                     echo 'N/A';
                                                 }
                                             ?></td>
+                                            <td><?php echo isset($result['exam_date']) && $result['exam_date'] ? date('d-m-Y', strtotime($result['exam_date'])) : 'N/A'; ?></td>
                                             <td><?php echo htmlspecialchars(getPerformanceComment($percent)); ?></td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -337,5 +542,143 @@ if (!empty($user['id'])) {
             </div>
         </div>
     </div>
+
+    <!-- Notifications JavaScript -->
+    <script>
+    // Close popup when clicking outside
+    document.addEventListener('click', (e) => {
+        const popup = document.getElementById('notificationsPopup');
+        const bell = document.getElementById('notificationsBell');
+        if (popup && bell && !popup.contains(e.target) && !bell.contains(e.target)) {
+            closeNotificationsPopup();
+        }
+    });
+
+    function closeNotificationsPopup() {
+        const popup = document.getElementById('notificationsPopup');
+        if (popup) popup.classList.remove('show');
+    }
+
+    function toggleNotificationsPopup() {
+        const popup = document.getElementById('notificationsPopup');
+        if (popup) popup.classList.toggle('show');
+    }
+
+    document.getElementById('notificationsBell').addEventListener('click', () => {
+        toggleNotificationsPopup();
+        if (document.getElementById('notificationsPopup').classList.contains('show')) {
+            loadNotifications();
+        }
+    });
+
+    function loadNotifications() {
+        fetch('../api/get-notifications.php')
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    updateNotificationBadge(data.unread_count);
+                    displayNotifications(data.notifications);
+                }
+            })
+            .catch(err => console.error('Error loading notifications:', err));
+    }
+
+    function updateNotificationBadge(count) {
+        const badge = document.getElementById('notificationBadge');
+        if (count > 0) {
+            badge.textContent = count > 9 ? '9+' : count;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+
+    function displayNotifications(notifications) {
+        const container = document.getElementById('notificationsContainer');
+        
+        if (notifications.length === 0) {
+            container.innerHTML = '<div class="notification-empty"><i class="fas fa-check-circle me-2"></i>All caught up! No new notifications.</div>';
+            return;
+        }
+
+        let html = '';
+        notifications.forEach(notif => {
+            const isUnread = notif.is_read == 0;
+            const createdDate = new Date(notif.created_at);
+            const now = new Date();
+            const diffMs = now - createdDate;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            let timeStr = '';
+            if (diffMins < 1) timeStr = 'Just now';
+            else if (diffMins < 60) timeStr = diffMins + 'm ago';
+            else if (diffHours < 24) timeStr = diffHours + 'h ago';
+            else if (diffDays < 7) timeStr = diffDays + 'd ago';
+            else timeStr = createdDate.toLocaleDateString();
+
+            html += `
+                <div class="notification-item ${isUnread ? 'unread' : ''}">
+                    <div class="notification-title">${escapeHtml(notif.title)}</div>
+                    <div class="notification-message">${escapeHtml(notif.message || '')}</div>
+                    <div class="notification-time">${timeStr}</div>
+                    <div class="notification-actions">
+                        ${notif.action_url ? `<button class="btn-view" onclick="goToAction('${escapeHtml(notif.action_url)}')"><i class="fas fa-arrow-right me-1"></i>View</button>` : ''}
+                        <button class="btn-close" onclick="deleteNotification(${notif.id})"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    function deleteNotification(notifId) {
+        if (confirm('Delete this notification?')) {
+            fetch('../api/delete-notification.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notification_id: notifId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) loadNotifications();
+            });
+        }
+    }
+
+    function goToAction(url) {
+        closeNotificationsPopup();
+        window.location.href = url;
+    }
+
+    function markAllAsRead() {
+        const unreadNotifs = document.querySelectorAll('.notification-item.unread');
+        let count = 0;
+        unreadNotifs.forEach(notif => {
+            const button = notif.querySelector('.btn-close');
+            const onclick = button.getAttribute('onclick');
+            const notifId = onclick.match(/\d+/)[0];
+            fetch('../api/mark-notification-read.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notification_id: notifId })
+            });
+            count++;
+        });
+        if (count > 0) setTimeout(() => loadNotifications(), 500);
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Initial load and auto-refresh
+    loadNotifications();
+    setInterval(loadNotifications, 30000);
+    </script>
 </body>
 </html>

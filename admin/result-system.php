@@ -1,11 +1,14 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+/** @var mysqli $conn */
 require_once '../includes/auth.php';
 
 // Check authentication
 checkAuth();
 checkRole(['admin', 'teacher']);
+
+$pending_admissions = getPendingAdmissionsCount($conn);
 
 // Get classes (Class 6 to 10 only)
 $classes = mysqli_query($conn, "SELECT * FROM classes WHERE class_name IN ('Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10') ORDER BY class_name");
@@ -357,6 +360,13 @@ $session = $current_year . '-' . ($current_year + 1);
                     <i class="fas fa-home"></i>
                     <span>Dashboard</span>
                 </a>
+                <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
+                    <?php if($pending_admissions > 0): ?>
+                        <span class="notification-badge"><?php echo $pending_admissions; ?></span>
+                    <?php endif; ?>
+                </a>
                 <a href="student-management.php" class="menu-item">
                     <i class="fas fa-user-graduate"></i>
                     <span>Student Management</span>
@@ -365,14 +375,15 @@ $session = $current_year . '-' . ($current_year + 1);
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="admission-management.php" class="menu-item">
-                    <i class="fas fa-file-alt"></i>
-                    <span>Admissions</span>
+                <a href="routine-management.php" class="menu-item">
+    <i class="fas fa-calendar-alt"></i>
+    <span>Routine Management</span>
+</a>
+                <a href="parent-discontinue-requests.php" class="menu-item">
+                    <i class="fas fa-user-slash"></i>
+                    <span>Discontinue Requests</span>
                 </a>
-                <a href="attendance.php" class="menu-item">
-                    <i class="fas fa-calendar-check"></i>
-                    <span>Attendance</span>
-                </a>
+                
                 <a href="result-system.php" class="menu-item active">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>

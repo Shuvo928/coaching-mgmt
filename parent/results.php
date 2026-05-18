@@ -44,7 +44,7 @@ if (!empty($student_ids)) {
 
 // Get all results for this student
 // Build column list based on what exists
-$resultsCols = "r.id, s.subject_name, r.test_type, r.created_at as test_date";
+$resultsCols = "r.id, s.subject_name, r.test_type, r.exam_date as exam_date";
 
 if ($resultsMarksColumns) {
     $resultsCols .= ", r.marks_obtained, r.total_marks";
@@ -436,7 +436,12 @@ $stats = mysqli_fetch_assoc($stats_result);
                         Fees & Payments
                     </a>
                 </li>
-                
+                <li>
+                    <a href="../parent-discontinue.php" onclick="return confirm('Are you sure you want to remove this account permanently?');">
+                        <i class="fas fa-sign-out-alt"></i>
+                         discontinues enrollment 
+                    </a>
+                </li>
                 <li>
                     <a href="../parent-logout.php">
                         <i class="fas fa-sign-out-alt"></i>
@@ -454,28 +459,6 @@ $stats = mysqli_fetch_assoc($stats_result);
                 <p>View <?php echo htmlspecialchars($student_name); ?>'s exam results and grades</p>
             </div>
 
-            <!-- Stats -->
-            <?php if($stats['total_exams'] > 0): ?>
-            <div class="results-stats">
-                <div class="stat-card avg">
-                    <span class="stat-value"><?php echo number_format($stats['avg_percentage'], 2); ?>%</span>
-                    <div class="stat-label">Average Percentage</div>
-                </div>
-                <div class="stat-card max">
-                    <span class="stat-value"><?php echo number_format($stats['max_percentage'], 2); ?>%</span>
-                    <div class="stat-label">Highest Score</div>
-                </div>
-                <div class="stat-card min">
-                    <span class="stat-value"><?php echo number_format($stats['min_percentage'], 2); ?>%</span>
-                    <div class="stat-label">Lowest Score</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value"><?php echo $stats['total_exams']; ?></span>
-                    <div class="stat-label">Total Exams</div>
-                </div>
-            </div>
-            <?php endif; ?>
-
             <!-- Results Table -->
             <div class="results-container">
                 <div class="results-container-header">
@@ -491,60 +474,28 @@ $stats = mysqli_fetch_assoc($stats_result);
                                 <th>Exam Type</th>
                                 <th>Date</th>
                                 <th>Marks Obtained</th>
-                                <th>Percentage</th>
-                                <th>Grade</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php
                             while($row = mysqli_fetch_assoc($results_result)) {
-                                // Calculate or get percentage
-                                if ($resultsPercentageExists) {
-                                    $percentage = floatval($row['percentage'] ?? 0);
-                                } else if ($resultsMarksColumns) {
-                                    $percentage = ($row['total_marks'] > 0) 
-                                        ? floatval($row['marks_obtained']) / floatval($row['total_marks']) * 100 
-                                        : 0;
-                                } else {
-                                    $percentage = null;
-                                }
-                                
-                                $grade = $row['grade'] ?? 'N/A';
-                                
-                                // Determine percentage badge color
-                                if($percentage !== null && $percentage >= 80) {
-                                    $pct_class = 'high';
-                                } elseif($percentage !== null && $percentage >= 60) {
-                                    $pct_class = 'medium';
-                                } else {
-                                    $pct_class = 'low';
-                                }
-                                
-                                // Determine grade color
-                                $grade_class = 'grade-' . strtolower($grade);
                             ?>
                             <tr>
                                 <td><span class="subject-name"><?php echo htmlspecialchars($row['subject_name'] ?? 'N/A'); ?></span></td>
                                 <td><span class="exam-type"><?php echo htmlspecialchars($row['test_name'] ?? 'Test'); ?></span></td>
-                                <td><?php echo isset($row['test_date']) ? date('d M, Y', strtotime($row['test_date'])) : 'N/A'; ?></td>
+                                <td><?php echo isset($row['exam_date']) && $row['exam_date'] ? date('d M, Y', strtotime($row['exam_date'])) : 'N/A'; ?></td>
                                 <td class="marks-badge">
                                     <?php 
-                                        if ($resultsMarksColumns && isset($row['marks_obtained']) && isset($row['total_marks'])) {
-                                            echo htmlspecialchars($row['marks_obtained'] . "/" . $row['total_marks']);
+                                        if (isset($row['marks_obtained']) && $row['marks_obtained'] !== null) {
+                                            if (isset($row['total_marks']) && $row['total_marks'] !== null && $row['total_marks'] > 0) {
+                                                echo htmlspecialchars($row['marks_obtained'] . "/" . $row['total_marks']);
+                                            } else {
+                                                echo htmlspecialchars($row['marks_obtained'] . "/100");
+                                            }
                                         } else {
                                             echo 'N/A';
                                         }
                                     ?>
-                                </td>
-                                <td>
-                                    <span class="percentage-badge <?php echo $pct_class; ?>">
-                                        <?php echo $percentage !== null ? number_format($percentage, 2) : 'N/A'; ?>%
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="grade-badge <?php echo $grade_class; ?>">
-                                        <?php echo htmlspecialchars($grade); ?>
-                                    </span>
                                 </td>
                             </tr>
                             <?php } ?>

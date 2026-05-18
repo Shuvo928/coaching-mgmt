@@ -9,6 +9,8 @@ checkAuth();
 // Only admin can access
 checkRole(['admin']);
 
+$pending_admissions = getPendingAdmissionsCount($conn);
+
 // Handle Delete Request
 if(isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     $student_id = (int) $_GET['delete'];
@@ -53,11 +55,10 @@ if(isset($_GET['toggle']) && is_numeric($_GET['toggle'])) {
     exit();
 }
 
-// Get all students with class and group info
-$query = "SELECT s.*, c.class_name, g.group_name 
-          FROM students s 
-          LEFT JOIN classes c ON s.class_id = c.id 
-          LEFT JOIN groups g ON s.group_id = g.id 
+// Get all students with class info
+$query = "SELECT s.*, c.class_name
+          FROM students s
+          LEFT JOIN classes c ON s.class_id = c.id
           ORDER BY s.id DESC";
 $students = mysqli_query($conn, $query);
 
@@ -413,6 +414,13 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     <i class="fas fa-home"></i>
                     <span>Dashboard</span>
                 </a>
+                 <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
+                    <?php if($pending_admissions > 0): ?>
+                        <span class="notification-badge"><?php echo $pending_admissions; ?></span>
+                    <?php endif; ?>
+                </a>
                 <a href="student-management.php" class="menu-item active">
                     <i class="fas fa-user-graduate"></i>
                     <span>Student Management</span>
@@ -421,14 +429,16 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="admission-management.php" class="menu-item">
-                    <i class="fas fa-file-alt"></i>
-                    <span>Admissions</span>
+               
+                <a href="routine-management.php" class="menu-item">
+    <i class="fas fa-calendar-alt"></i>
+    <span>Routine Management</span>
+</a>
+                <a href="parent-discontinue-requests.php" class="menu-item">
+                    <i class="fas fa-user-slash"></i>
+                    <span>Discontinue Requests</span>
                 </a>
-                <a href="attendance.php" class="menu-item">
-                    <i class="fas fa-calendar-check"></i>
-                    <span>Attendance</span>
-                </a>
+                
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>
@@ -437,6 +447,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
                 </a>
+
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
                     <span>Logout</span>
@@ -494,40 +505,10 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                 <div class="card-header">
                     <h5><i class="fas fa-list me-2"></i>All Students</h5>
                     <div>
-                        <button class="btn btn-add me-2" onclick="openAddModal()">
-                            <i class="fas fa-plus me-2"></i>Add New Student
-                        </button>
+                        
                         <button class="btn btn-outline-secondary" onclick="exportTableToExcel()">
                             <i class="fas fa-file-excel me-2"></i>Export
                         </button>
-                    </div>
-                </div>
-
-                <!-- Search and Filter -->
-                <div class="row mb-4">
-                    <div class="col-md-6">
-                        <div class="search-box">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="searchInput" class="form-control" placeholder="Search students...">
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <select class="form-select" id="classFilter">
-                            <option value="">All Classes</option>
-                            <?php while($class = mysqli_fetch_assoc($classes)): ?>
-                                <?php $classLabel = $class['class_name']; ?>
-                                <option value="<?php echo htmlspecialchars($classLabel); ?>">
-                                    <?php echo htmlspecialchars($classLabel); ?>
-                                </option>
-                            <?php endwhile; ?>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <select class="form-select" id="statusFilter">
-                            <option value="">All Status</option>
-                            <option value="1">Active</option>
-                            <option value="0">Inactive</option>
-                        </select>
                     </div>
                 </div>
 
@@ -539,9 +520,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <th>ID</th>
                                 <th>Photo</th>
                                 <th>Name</th>
-                                <th>Class ID</th>
                                 <th>Class</th>
-                                <th>Group</th>
                                 <th>Phone</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -549,11 +528,10 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                         </thead>
                         <tbody>
                             <?php 
-                            $sno = 1;
                             while($row = mysqli_fetch_assoc($students)): 
                             ?>
                             <tr>
-                                <td><?php echo $sno++; ?></td>
+                                <td><strong><?php echo date('Y') . str_pad($row['id'], 3, '0', STR_PAD_LEFT); ?></strong></td>
                                 <td>
                                     <?php if($row['photo']): ?>
                                         <img src="../uploads/student-photos/<?php echo $row['photo']; ?>" 
@@ -564,9 +542,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
-                                <td><span class="badge bg-light text-dark"><?php echo $row['class_id'] ?? 'N/A'; ?></span></td>
-                                <td><?php echo $row['class_name'] ? htmlspecialchars($row['class_name'] . (!empty($row['group_name']) ? ' - ' . $row['group_name'] : '')) : 'N/A'; ?></td>
-                                <td><?php echo !empty($row['group_name']) ? ucwords(strtolower($row['group_name'])) : 'N/A'; ?></td>
+                                <td><?php echo $row['class_name'] ? htmlspecialchars($row['class_name']) : 'N/A'; ?></td>
                                 <td><?php echo $row['phone'] ?? 'N/A'; ?></td>
                                 <td>
                                     <span class="status-badge <?php echo $row['status'] ? 'active' : 'inactive'; ?>">
@@ -574,7 +550,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                     </span>
                                 </td>
                                 <td>
-                                    <a href="javascript:void(0)" onclick="editStudent(<?php echo $row['id']; ?>)" 
+                                    <a href="#" onclick="editStudent(<?php echo $row['id']; ?>); return false;" 
                                        class="action-btn btn-edit" title="Edit">
                                         <i class="fas fa-edit"></i>
                                     </a>
@@ -619,16 +595,10 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
 
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Father's Name</label>
-                                <input type="text" class="form-control" name="father_name" id="father_name">
+                                <label class="form-label">Parent Name</label>
+                                <input type="text" class="form-control" id="parent_name" readonly>
+                                <small class="text-muted">Parent name is loaded from the admission information.</small>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Mother's Name</label>
-                                <input type="text" class="form-control" name="mother_name" id="mother_name">
-                            </div>
-                        </div>
-
-                        <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Phone *</label>
                                 <input type="text" class="form-control" name="phone" id="phone" required>
@@ -636,11 +606,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                         </div>
 
                         <div class="row">
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">Date of Birth</label>
-                                <input type="date" class="form-control" name="dob" id="dob" min="1990-01-01" max="2015-12-31">
-                                <small class="text-muted">Year range: 1990 - 2015</small>
-                            </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Gender</label>
                                 <select class="form-select" name="gender" id="gender">
@@ -651,14 +616,11 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 </select>
                             </div>
                             <div class="col-md-4 mb-3">
-                                <label class="form-label">Class *</label>
-                                <input type="text" class="form-control" name="class_label" id="class_label" placeholder="e.g. 11 - Science" required>
-                                <small class="text-muted">Enter class name with group manually (e.g. 11 - Science).</small>
+                                <label class="form-label">Class Group</label>
+                                <input type="text" class="form-control" name="class_label" id="class_label" readonly>
+                                <small class="text-muted">Auto-filled from the student's admission record.</small>
                             </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
+                            <div class="col-md-4 mb-3">
                                 <label class="form-label">Admission Date</label>
                                 <input type="date" class="form-control" name="admission_date" id="admission_date">
                             </div>
@@ -669,12 +631,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                             <textarea class="form-control" name="address" id="address" rows="2"></textarea>
                         </div>
 
-                        <div class="mb-3">
-                            <label class="form-label">Photo</label>
-                            <input type="file" class="form-control" name="photo" id="photo" accept="image/*">
-                            <small class="text-muted">Allowed: JPG, PNG, GIF (Max 2MB)</small>
-                            <div id="photo_preview" class="mt-2"></div>
-                        </div>
+                        <!-- Photo upload removed per request -->
 
                         <div class="row">
                             <div class="col-md-6 mb-3">
@@ -733,20 +690,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                 }
             });
 
-            // Custom search
-            $('#searchInput').on('keyup', function() {
-                table.search(this.value).draw();
-            });
 
-            // Class filter
-            $('#classFilter').on('change', function() {
-                var value = this.value;
-                if(value) {
-                    table.column(4).search('^' + value + '$', true, false).draw();
-                } else {
-                    table.column(4).search('').draw();
-                }
-            });
 
             // Status filter
             $('#statusFilter').on('change', function() {
@@ -765,9 +709,11 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
         function openAddModal() {
             document.getElementById('studentForm').reset();
             document.getElementById('student_id').value = '';
+            document.getElementById('parent_name').value = '';
+            document.getElementById('class_label').value = '';
+            document.getElementById('class_label').readOnly = false;
             document.getElementById('modalTitle').innerHTML = '<i class="fas fa-plus me-2"></i>Add New Student';
             document.getElementById('password').required = true;
-            document.getElementById('photo_preview').innerHTML = '';
             new bootstrap.Modal(document.getElementById('studentModal')).show();
         }
 
@@ -781,37 +727,35 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     document.getElementById('student_id').value = data.id;
                     document.getElementById('first_name').value = data.first_name;
                     document.getElementById('last_name').value = data.last_name;
-                    document.getElementById('father_name').value = data.father_name;
-                    document.getElementById('mother_name').value = data.mother_name;
+                    document.getElementById('parent_name').value = data.parent_name || '';
                     document.getElementById('phone').value = data.phone;
-                    document.getElementById('dob').value = data.dob;
                     document.getElementById('gender').value = data.gender;
-                    document.getElementById('class_label').value = data.class_label || '';
+                    document.getElementById('class_label').value = data.admission_group || data.class_label || '';
+                    document.getElementById('class_label').readOnly = true;
                     document.getElementById('admission_date').value = data.admission_date;
                     document.getElementById('address').value = data.address;
                     document.getElementById('username').value = data.username;
                     document.getElementById('password').required = false;
                     document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit me-2"></i>Edit Student';
-                    
-                    if(data.photo) {
-                        document.getElementById('photo_preview').innerHTML = 
-                            '<img src="../uploads/student-photos/' + data.photo + '" style="max-width: 100px; max-height: 100px; border-radius: 10px;">';
-                    }
-                    
                     new bootstrap.Modal(document.getElementById('studentModal')).show();
                 }
             });
         }
 
-        // Photo Preview
-        document.getElementById('photo').addEventListener('change', function(e) {
-            var reader = new FileReader();
-            reader.onload = function(e) {
-                document.getElementById('photo_preview').innerHTML = 
-                    '<img src="' + e.target.result + '" style="max-width: 100px; max-height: 100px; border-radius: 10px;">';
-            }
-            reader.readAsDataURL(this.files[0]);
-        });
+        // Photo Preview (only if photo input exists)
+        var photoInput = document.getElementById('photo');
+        if (photoInput) {
+            photoInput.addEventListener('change', function(e) {
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    var preview = document.getElementById('photo_preview');
+                    if (preview) {
+                        preview.innerHTML = '<img src="' + e.target.result + '" style="max-width: 100px; max-height: 100px; border-radius: 10px;">';
+                    }
+                }
+                reader.readAsDataURL(this.files[0]);
+            });
+        }
 
         // Export to Excel
         function exportTableToExcel() {

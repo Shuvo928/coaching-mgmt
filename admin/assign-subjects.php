@@ -6,10 +6,32 @@ require_once '../includes/db.php';
 $teacherSubjectsClassIdColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
 $teacherSubjectsClassIdColumnExists = ($teacherSubjectsClassIdColumnCheck && mysqli_num_rows($teacherSubjectsClassIdColumnCheck) > 0);
 
-function autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects) {
+function autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects, $class_ids = null) {
+    global $teacherSubjectsClassIdColumnExists;
+
     $assigned_subjects = trim($assigned_subjects);
     if($assigned_subjects === '') {
         return;
+    }
+
+    if (is_array($class_ids)) {
+        $class_ids = array_values(array_filter(array_map('intval', $class_ids), function($value) {
+            return $value > 0;
+        }));
+    } else {
+        $class_ids = $class_ids ? [intval($class_ids)] : [];
+    }
+
+    if ($teacherSubjectsClassIdColumnExists && !empty($class_ids)) {
+        $validatedClassIds = [];
+        $class_ids_list = implode(',', array_map('intval', $class_ids));
+        $validClassesRes = mysqli_query($conn, "SELECT id FROM classes WHERE id IN ($class_ids_list)");
+        if ($validClassesRes) {
+            while ($classRow = mysqli_fetch_assoc($validClassesRes)) {
+                $validatedClassIds[] = intval($classRow['id']);
+            }
+        }
+        $class_ids = $validatedClassIds;
     }
 
     $mapping = [
@@ -34,28 +56,33 @@ function autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects) {
         $searchTerms = $mapping[$term] ?? [$term];
         foreach($searchTerms as $searchTerm) {
             $keyword = mysqli_real_escape_string($conn, $searchTerm);
-            $subject_query = mysqli_query($conn, "SELECT id, class_id FROM subjects WHERE LOWER(subject_name) LIKE '%$keyword%'");
+            $classFilter = '';
+            if ($teacherSubjectsClassIdColumnExists && !empty($class_ids)) {
+                $classFilter = ' AND class_id IN (' . implode(',', array_map('intval', $class_ids)) . ')';
+            }
+
+            $subject_query = mysqli_query($conn, "SELECT id, class_id FROM subjects WHERE LOWER(subject_name) LIKE '%$keyword%'$classFilter");
             if(!$subject_query) {
                 continue;
             }
 
             while($subject = mysqli_fetch_assoc($subject_query)) {
                 $subject_id = intval($subject['id']);
-                $check_query = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id LIMIT 1";
+                $subject_class_id = intval($subject['class_id']);
+                $check_query = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id";
+                if ($teacherSubjectsClassIdColumnExists) {
+                    $check_query .= " AND class_id = $subject_class_id";
+                }
+                $check_query .= " LIMIT 1";
+
                 $check_result = mysqli_query($conn, $check_query);
                 if($check_result && mysqli_num_rows($check_result) === 0) {
-                    global $teacherSubjectsClassIdColumnExists;
-                    $class_id = intval($subject['class_id']);
-                    
-                    // Build INSERT query conditionally
                     $columns = "teacher_id, subject_id";
                     $values = "$teacher_id, $subject_id";
-                    
                     if ($teacherSubjectsClassIdColumnExists) {
                         $columns .= ", class_id";
-                        $values .= ", " . ($class_id ? $class_id : 'NULL');
+                        $values .= ", " . ($subject_class_id ? $subject_class_id : 'NULL');
                     }
-                    
                     $insert_query = "INSERT INTO teacher_subjects ($columns) VALUES ($values)";
                     mysqli_query($conn, $insert_query);
                 }
@@ -127,19 +154,82 @@ if(isset($_POST['assign'])) {
         $subjects_column_check = mysqli_query($conn, "SHOW COLUMNS FROM teachers LIKE 'assigned_subjects'");
         if($subjects_column_check && mysqli_num_rows($subjects_column_check) > 0) {
             $subject_names = [];
+            $class_ids_for_teacher = [];
+            $class_names_for_teacher = [];
+
             if(!empty($subjects)) {
                 $subject_ids = implode(',', $subjects);
-                $subject_query = mysqli_query($conn, "SELECT subject_name FROM subjects WHERE id IN ($subject_ids)");
+                $subject_query = mysqli_query($conn, "SELECT s.subject_name, s.class_id, c.class_name FROM subjects s LEFT JOIN classes c ON s.class_id = c.id WHERE s.id IN ($subject_ids)");
                 if(!$subject_query) {
                     throw new Exception(mysqli_error($conn));
                 }
                 while($sub = mysqli_fetch_assoc($subject_query)) {
                     $subject_names[] = $sub['subject_name'];
+                    if(!empty($sub['class_id'])) {
+                        $class_ids_for_teacher[] = intval($sub['class_id']);
+                    }
+                    if(!empty($sub['class_name'])) {
+                        $class_names_for_teacher[] = $sub['class_name'];
+                    }
                 }
             }
+
             $subject_list = implode(', ', $subject_names);
             $subject_list_safe = mysqli_real_escape_string($conn, $subject_list);
             if(!mysqli_query($conn, "UPDATE teachers SET assigned_subjects = '$subject_list_safe' WHERE id = $teacher_id")) {
+                throw new Exception(mysqli_error($conn));
+            }
+
+            $unique_class_ids = array_values(array_unique($class_ids_for_teacher));
+            $unique_class_names = array_values(array_unique($class_names_for_teacher));
+            $class_name_list = mysqli_real_escape_string($conn, implode(', ', $unique_class_names));
+            $first_class_id = count($unique_class_ids) ? $unique_class_ids[0] : 'NULL';
+
+            $class_update_query = "UPDATE teachers SET class_name = '$class_name_list'";
+            if ($first_class_id !== 'NULL') {
+                $class_update_query .= ", class_id = $first_class_id";
+            } else {
+                $class_update_query .= ", class_id = NULL";
+            }
+            $class_update_query .= " WHERE id = $teacher_id";
+
+            if(!mysqli_query($conn, $class_update_query)) {
+                throw new Exception(mysqli_error($conn));
+            }
+        } else {
+            // If assigned_subjects column does not exist, still update teacher class_name/class_id
+            $class_ids_for_teacher = [];
+            $class_names_for_teacher = [];
+            if(!empty($subjects)) {
+                $subject_ids = implode(',', $subjects);
+                $subject_query = mysqli_query($conn, "SELECT s.class_id, c.class_name FROM subjects s LEFT JOIN classes c ON s.class_id = c.id WHERE s.id IN ($subject_ids)");
+                if(!$subject_query) {
+                    throw new Exception(mysqli_error($conn));
+                }
+                while($sub = mysqli_fetch_assoc($subject_query)) {
+                    if(!empty($sub['class_id'])) {
+                        $class_ids_for_teacher[] = intval($sub['class_id']);
+                    }
+                    if(!empty($sub['class_name'])) {
+                        $class_names_for_teacher[] = $sub['class_name'];
+                    }
+                }
+            }
+
+            $unique_class_ids = array_values(array_unique($class_ids_for_teacher));
+            $unique_class_names = array_values(array_unique($class_names_for_teacher));
+            $class_name_list = mysqli_real_escape_string($conn, implode(', ', $unique_class_names));
+            $first_class_id = count($unique_class_ids) ? $unique_class_ids[0] : 'NULL';
+
+            $class_update_query = "UPDATE teachers SET class_name = '$class_name_list'";
+            if ($first_class_id !== 'NULL') {
+                $class_update_query .= ", class_id = $first_class_id";
+            } else {
+                $class_update_query .= ", class_id = NULL";
+            }
+            $class_update_query .= " WHERE id = $teacher_id";
+
+            if(!mysqli_query($conn, $class_update_query)) {
                 throw new Exception(mysqli_error($conn));
             }
         }
@@ -168,19 +258,50 @@ $subjects_data = [];
 $assigned_subject_ids = [];
 
 if($selected_teacher_id > 0) {
-    // Get all subjects grouped by class
-    $subjects_query = "SELECT s.id, s.subject_name, c.class_name, c.id as class_id
-                       FROM subjects s
-                       JOIN classes c ON s.class_id = c.id
-                       ORDER BY c.class_name, s.subject_name";
-    $subjects_result = mysqli_query($conn, $subjects_query);
-    
-    if($subjects_result) {
-        while($row = mysqli_fetch_assoc($subjects_result)) {
-            $subjects_data[] = $row;
+    // Determine which classes the selected teacher is assigned to
+    $selected_class_ids = [];
+    $teacher_info_query = mysqli_query($conn, "SELECT class_id, class_name FROM teachers WHERE id = $selected_teacher_id LIMIT 1");
+    if($teacher_info_query && $teacher_info = mysqli_fetch_assoc($teacher_info_query)) {
+        if(!empty($teacher_info['class_id'])) {
+            $selected_class_ids[] = intval($teacher_info['class_id']);
+        }
+
+        if(!empty($teacher_info['class_name'])) {
+            $class_names = array_filter(array_map('trim', explode(',', $teacher_info['class_name'])));
+            if(!empty($class_names)) {
+                $escapedNames = array_map(function($name) use ($conn) {
+                    return "'" . mysqli_real_escape_string($conn, $name) . "'";
+                }, $class_names);
+                $nameList = implode(',', $escapedNames);
+                $class_ids_result = mysqli_query($conn, "SELECT id FROM classes WHERE class_name IN ($nameList)");
+                if($class_ids_result) {
+                    while($classRow = mysqli_fetch_assoc($class_ids_result)) {
+                        $selected_class_ids[] = intval($classRow['id']);
+                    }
+                }
+            }
         }
     }
-    
+
+    $selected_class_ids = array_values(array_unique($selected_class_ids));
+
+    if(!empty($selected_class_ids)) {
+        $class_ids_str = implode(',', $selected_class_ids);
+        $subjects_query = "SELECT s.id, s.subject_name, s.stream, c.class_name, c.id as class_id
+                           FROM subjects s
+                           JOIN classes c ON s.class_id = c.id
+                           WHERE s.class_id IN ($class_ids_str)
+                           ORDER BY c.id,
+                                   FIELD(s.stream, 'Science', 'Commerce', 'Humanities'),
+                                   s.subject_name";
+        $subjects_result = mysqli_query($conn, $subjects_query);
+        if($subjects_result) {
+            while($row = mysqli_fetch_assoc($subjects_result)) {
+                $subjects_data[] = $row;
+            }
+        }
+    }
+
     // Get already assigned subjects for the selected teacher
     $assigned_query = "SELECT subject_id FROM teacher_subjects WHERE teacher_id = $selected_teacher_id";
     $assigned_result = mysqli_query($conn, $assigned_query);
@@ -388,6 +509,35 @@ if($selected_teacher_id > 0) {
             letter-spacing: 0.5px;
         }
 
+        .stream-group {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .stream-title {
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            opacity: 0.9;
+        }
+
+        .stream-group .subject-checkbox {
+            margin-left: 8px;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        .stream-group .subject-checkbox:hover {
+            background: rgba(255, 255, 255, 0.7);
+        }
+
         .select-all-btn {
             background: white;
             border: 1px solid #667eea;
@@ -511,11 +661,35 @@ if($selected_teacher_id > 0) {
                                 <?php 
                                 if(!empty($subjects_data)):
                                     $current_class = '';
+                                    $current_stream = '';
                                     foreach($subjects_data as $subject):
+                                        // Check if class changed
                                         if($subject['class_name'] != $current_class): 
+                                            // Close previous stream group
+                                            if($current_stream != '') echo '</div>';
+                                            // Close previous class group
                                             if($current_class != '') echo '</div>';
+                                            
                                             $current_class = $subject['class_name'];
+                                            $current_stream = '';
                                             echo '<div class="class-group"><div class="class-group-title">' . htmlspecialchars($current_class) . '</div>';
+                                        endif;
+                                        
+                                        // Check if stream changed
+                                        if($subject['stream'] != $current_stream):
+                                            // Close previous stream group
+                                            if($current_stream != '') echo '</div>';
+                                            
+                                            $current_stream = $subject['stream'];
+                                            $stream_color = '';
+                                            if($current_stream === 'Science') {
+                                                $stream_color = 'style="border-left: 4px solid #1976d2; background: #e3f2fd;"';
+                                            } elseif($current_stream === 'Commerce') {
+                                                $stream_color = 'style="border-left: 4px solid #f57c00; background: #fff3e0;"';
+                                            } else {
+                                                $stream_color = 'style="border-left: 4px solid #7b1fa2; background: #f3e5f5;"';
+                                            }
+                                            echo '<div class="stream-group" ' . $stream_color . '><div class="stream-title">' . htmlspecialchars($current_stream) . ' Stream</div>';
                                         endif;
                                 ?>
                                         <div class="subject-checkbox">
@@ -527,8 +701,11 @@ if($selected_teacher_id > 0) {
                                         </div>
                                 <?php 
                                     endforeach; 
-                                    echo '</div>';
-                                else:
+                                    // Close last open divs
+                                    if($current_stream != '') { echo '</div>'; }
+                                    if($current_class != '') { echo '</div>'; }
+                                endif;
+                                if(empty($subjects_data)):
                                 ?>
                                     <div class="alert alert-warning">
                                         <i class="fas fa-exclamation-triangle me-2"></i>No subjects available

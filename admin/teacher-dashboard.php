@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../includes/db.php'; // adjust path if needed
+/** @var mysqli $conn */
 
 // Authentication check
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'teacher') {
@@ -34,25 +35,38 @@ if (!$has_class_id) {
          </div>");
 }
 
-$assigned_subjects_query = "SELECT ts.subject_id, s.subject_name, s.class_id, c.class_name
+$assigned_subjects_query = "SELECT DISTINCT ts.subject_id, s.subject_name, s.class_id, c.class_name, s.stream
                             FROM teacher_subjects ts
                             JOIN subjects s ON ts.subject_id = s.id
                             JOIN classes c ON s.class_id = c.id
                             WHERE ts.teacher_id = $teacher_id
-                            ORDER BY c.class_name, s.subject_name";
+                            ORDER BY c.class_name, s.stream, s.subject_name";
 $assigned_subjects = mysqli_query($conn, $assigned_subjects_query);
 
 // Build a quick lookup for permission checks
 $allowed_subject_ids = [];
+$allowed_subject_names = [];
 $allowed_combinations = []; // for frontend filtering
+$comboKeys = [];
 while ($row = mysqli_fetch_assoc($assigned_subjects)) {
-    $allowed_subject_ids[] = $row['subject_id'];
-    $allowed_combinations[] = [
-        'class_id' => $row['class_id'],
-        'subject_id' => $row['subject_id'],
-        'subject_name' => $row['subject_name'],
-        'class_name' => $row['class_name']
-    ];
+    if (!in_array($row['subject_id'], $allowed_subject_ids, true)) {
+        $allowed_subject_ids[] = $row['subject_id'];
+    }
+    if (!in_array($row['subject_name'], $allowed_subject_names, true)) {
+        $allowed_subject_names[] = $row['subject_name'];
+    }
+
+    $comboKey = $row['class_id'] . '_' . $row['subject_id'];
+    if (!isset($comboKeys[$comboKey])) {
+        $comboKeys[$comboKey] = true;
+        $allowed_combinations[] = [
+            'class_id' => $row['class_id'],
+            'subject_id' => $row['subject_id'],
+            'subject_name' => $row['subject_name'],
+            'class_name' => $row['class_name'],
+            'stream' => $row['stream'] ?? ''
+        ];
+    }
 }
 // Reset pointer for later use
 mysqli_data_seek($assigned_subjects, 0);
@@ -60,80 +74,13 @@ mysqli_data_seek($assigned_subjects, 0);
 // ------------------------------------------------------------------
 // 2. Handle Bulk Save / Update of marks
 // ------------------------------------------------------------------
+// NOTE: Moved to separate file: save-teacher-marks.php
+// This keeps the JSON response clean without HTML interference
 $success_msg = '';
 $error_msg = '';
 
 if (isset($_GET['save_bulk_marks']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    
-    $input = file_get_contents('php://input');
-    $data = json_decode($input, true);
-    
-    if (!isset($data['marks']) || !is_array($data['marks'])) {
-        echo json_encode(['success' => false, 'message' => 'Invalid data format']);
-        exit;
-    }
-    
-    $marks_to_save = $data['marks'];
-    $saved_count = 0;
-    $errors = [];
-    
-    foreach ($marks_to_save as $item) {
-        $student_id = intval($item['student_id']);
-        $subject_id = intval($item['subject_id']);
-        $exam_type = mysqli_real_escape_string($conn, $item['exam_type']);
-        $marks = floatval($item['marks']);
-        
-        // Validation
-        if ($student_id <= 0 || $subject_id <= 0) {
-            $errors[] = "Invalid student or subject ID";
-            continue;
-        }
-        
-        if ($marks < 0 || $marks > 100) {
-            $errors[] = "Marks for student $student_id must be between 0 and 100";
-            continue;
-        }
-        
-        // Security: verify teacher is allowed to enter marks for this subject
-        $check_sql = "SELECT 1 FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id";
-        $check_res = mysqli_query($conn, $check_sql);
-        if (mysqli_num_rows($check_res) == 0) {
-            $errors[] = "You are not allowed to add marks for subject ID $subject_id";
-            continue;
-        }
-        
-        // Check if result already exists (student_id + subject_id + exam_type)
-        $exists_sql = "SELECT id FROM results WHERE student_id = $student_id AND subject_id = $subject_id AND exam_type = '$exam_type'";
-        $exists_res = mysqli_query($conn, $exists_sql);
-        
-        if (mysqli_num_rows($exists_res) > 0) {
-            // Update
-            $update_sql = "UPDATE results SET marks = $marks, updated_at = NOW() 
-                          WHERE student_id = $student_id AND subject_id = $subject_id AND exam_type = '$exam_type'";
-            if (mysqli_query($conn, $update_sql)) {
-                $saved_count++;
-            } else {
-                $errors[] = "Error updating marks for student $student_id: " . mysqli_error($conn);
-            }
-        } else {
-            // Insert new
-            $insert_sql = "INSERT INTO results (student_id, subject_id, exam_type, marks, created_at, updated_at) 
-                          VALUES ($student_id, $subject_id, '$exam_type', $marks, NOW(), NOW())";
-            if (mysqli_query($conn, $insert_sql)) {
-                $saved_count++;
-            } else {
-                $errors[] = "Error inserting marks for student $student_id: " . mysqli_error($conn);
-            }
-        }
-    }
-    
-    if ($saved_count > 0) {
-        echo json_encode(['success' => true, 'message' => "Successfully saved $saved_count student mark(s)." . (count($errors) > 0 ? " Errors: " . implode(", ", $errors) : "")]);
-    } else {
-        echo json_encode(['success' => false, 'message' => "No marks were saved. " . implode(", ", $errors)]);
-    }
-    exit;
+    // ... handler code moved to save-teacher-marks.php
 }
 
 // ------------------------------------------------------------------
@@ -143,14 +90,27 @@ $class_ids_allowed = array_unique(array_column($allowed_combinations, 'class_id'
 $class_ids_str = implode(',', $class_ids_allowed);
 $students_list = [];
 if (!empty($class_ids_str)) {
-    $students_sql = "SELECT s.id, s.student_name, s.roll_number, s.class_id, s.group_id,
-                            c.class_name, g.group_name
+    // Check which columns exist in admission_applications
+    $admissionPhoneColumn = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'mobile'");
+    $admissionHasMobile = ($admissionPhoneColumn && mysqli_num_rows($admissionPhoneColumn) > 0);
+    $admissionPhoneField = $admissionHasMobile ? 'mobile' : 'phone';
+    
+    // Use student's ID as roll_number (ID is unique and guaranteed to be non-null)
+    $students_sql = "SELECT s.id, CONCAT(s.first_name, ' ', s.last_name) AS student_name, s.id AS roll_number, s.class_id, s.group_id, s.phone,
+                            c.class_name, 
+                            COALESCE(aa.`group`, g.group_name, 'Unassigned') AS group_name
                      FROM students s
                      JOIN classes c ON s.class_id = c.id
-                     JOIN `groups` g ON s.group_id = g.id
+                     LEFT JOIN admission_applications aa ON s.phone = aa.$admissionPhoneField
+                     LEFT JOIN `groups` g ON s.group_id = g.id
                      WHERE s.class_id IN ($class_ids_str)
-                     ORDER BY c.class_name, g.group_name, s.roll_number";
+                     ORDER BY c.class_name, COALESCE(aa.`group`, g.group_name, 'Unassigned'), s.id";
     $students_res = mysqli_query($conn, $students_sql);
+    
+    if (!$students_res) {
+        die("Students Query Error: " . mysqli_error($conn));
+    }
+    
     while ($stu = mysqli_fetch_assoc($students_res)) {
         $students_list[] = $stu;
     }
@@ -162,12 +122,12 @@ if (!empty($class_ids_str)) {
 $allowed_subjects_str = implode(',', $allowed_subject_ids);
 $recent_results = [];
 if (!empty($allowed_subjects_str)) {
-    $results_sql = "SELECT r.*, s.student_name, s.roll_number, sub.subject_name, c.class_name, g.group_name
+    $results_sql = "SELECT r.*, CONCAT(s.first_name, ' ', s.last_name) AS student_name, s.id AS roll_number, s.class_id AS student_class_id, s.group_id AS student_group_id, sub.subject_name, c.class_name, COALESCE(g.group_name, 'Unassigned') AS group_name
                     FROM results r
                     JOIN students s ON r.student_id = s.id
                     JOIN subjects sub ON r.subject_id = sub.id
                     JOIN classes c ON sub.class_id = c.id
-                    JOIN `groups` g ON s.group_id = g.id
+                    LEFT JOIN `groups` g ON s.group_id = g.id
                     WHERE r.subject_id IN ($allowed_subjects_str)
                     ORDER BY r.created_at DESC
                     LIMIT 50";
@@ -178,17 +138,134 @@ if (!empty($allowed_subjects_str)) {
 }
 
 // ------------------------------------------------------------------
-// 5. Fetch class & group lists for dynamic dropdowns (only those where teacher has at least one subject)
+// 5. Fetch teacher routine data
+// ------------------------------------------------------------------
+$teacher_routines = [];
+$found_routine_combinations = [];
+$missing_routine_combos = [];
+
+// Build teacher routine query
+$teacher_routine_query = "SELECT cr.*, c.class_name, s.subject_name
+                  FROM class_routine cr
+                  JOIN classes c ON cr.class_id = c.id
+                  JOIN subjects s ON cr.subject_id = s.id
+                  WHERE cr.teacher_id = $teacher_id";
+
+if (!empty($allowed_subject_ids)) {
+    $teacher_routine_query .= " AND cr.subject_id IN (" . implode(',', array_map('intval', $allowed_subject_ids)) . ")";
+}
+
+$teacher_routine_query .= "
+                  ORDER BY FIELD(cr.day,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), cr.start_time";
+
+$routine_result = mysqli_query($conn, $teacher_routine_query);
+if (!$routine_result) {
+    error_log("Teacher Routine Query Error: " . mysqli_error($conn));
+} else {
+    while ($row = mysqli_fetch_assoc($routine_result)) {
+        $teacher_routines[] = $row;
+        $key = strtolower(trim($row['class_name'] . '|' . $row['subject_name']));
+        $found_routine_combinations[$key] = true;
+    }
+}
+
+// Also include legacy routine items from the custom `routine` table when the teacher has assigned subjects or matching teacher name.
+$first_name = trim($teacher['first_name']);
+$last_name = trim($teacher['last_name']);
+$full_name = trim($first_name . ' ' . $last_name);
+$legacy_conditions = [];
+
+// Match by assigned subject + class combination from allowed teacher assignments.
+foreach ($allowed_combinations as $comb) {
+    $subject_name = mysqli_real_escape_string($conn, $comb['subject_name']);
+    $class_name = mysqli_real_escape_string($conn, $comb['class_name']);
+    $legacy_conditions[] = "(LOWER(subject) = LOWER('$subject_name') AND LOWER(class_group) LIKE LOWER('$class_name%'))";
+}
+
+// Additional fallback: match by teacher name and assigned subjects.
+$teacher_name_conditions = [];
+if ($full_name !== '') {
+    $escaped_full_name = mysqli_real_escape_string($conn, $full_name);
+    $teacher_name_conditions[] = "LOWER(TRIM(teacher)) = LOWER('$escaped_full_name')";
+}
+if ($first_name !== '') {
+    $escaped_first_name = mysqli_real_escape_string($conn, $first_name);
+    $teacher_name_conditions[] = "LOWER(TRIM(teacher)) = LOWER('$escaped_first_name')";
+}
+if ($last_name !== '') {
+    $escaped_last_name = mysqli_real_escape_string($conn, $last_name);
+    $teacher_name_conditions[] = "LOWER(TRIM(teacher)) = LOWER('$escaped_last_name')";
+}
+
+if (!empty($teacher_name_conditions) && !empty($allowed_subject_names)) {
+    $escaped_names = array_map(function($name) use ($conn) {
+        return "'" . mysqli_real_escape_string($conn, mb_strtolower($name, 'UTF-8')) . "'";
+    }, $allowed_subject_names);
+    $legacy_conditions[] = "(" . implode(' OR ', $teacher_name_conditions) . ") AND LOWER(subject) IN (" . implode(',', $escaped_names) . ")";
+}
+
+if (!empty($legacy_conditions)) {
+    $legacy_routine_query = "SELECT 0 AS id, class_group AS class_name, subject AS subject_name, day, start_time, end_time, room
+                            FROM `routine`
+                            WHERE " . implode(' OR ', $legacy_conditions) . "
+                            ORDER BY FIELD(day,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), start_time";
+    $legacy_routine_result = mysqli_query($conn, $legacy_routine_query);
+    if ($legacy_routine_result) {
+        while ($row = mysqli_fetch_assoc($legacy_routine_result)) {
+            $teacher_routines[] = $row;
+            $key = strtolower(trim($row['class_name'] . '|' . $row['subject_name']));
+            $found_routine_combinations[$key] = true;
+        }
+    }
+}
+
+foreach ($allowed_combinations as $comb) {
+    $key = strtolower(trim($comb['class_name'] . '|' . $comb['subject_name']));
+    if (!isset($found_routine_combinations[$key])) {
+        $missing_routine_combos[] = $comb;
+    }
+}
+
+$missing_routine_text = '';
+if (!empty($missing_routine_combos)) {
+    $formatted_missing = [];
+    foreach ($missing_routine_combos as $missing_combo) {
+        $formatted_missing[] = htmlspecialchars($missing_combo['class_name'] . ' - ' . $missing_combo['subject_name']);
+    }
+    $missing_routine_text = implode(', ', $formatted_missing);
+}
+
+// Sort combined routines by day and time for a consistent display order.
+$days_order = ['Sunday' => 0, 'Monday' => 1, 'Tuesday' => 2, 'Wednesday' => 3, 'Thursday' => 4, 'Friday' => 5, 'Saturday' => 6];
+usort($teacher_routines, function ($a, $b) use ($days_order) {
+    $day_a = $days_order[$a['day']] ?? 7;
+    $day_b = $days_order[$b['day']] ?? 7;
+    if ($day_a !== $day_b) {
+        return $day_a <=> $day_b;
+    }
+    return strcmp($a['start_time'], $b['start_time']);
+});
+
+// ------------------------------------------------------------------
+// 6. Fetch class & group lists for dynamic dropdowns (only those where teacher has at least one subject)
 // ------------------------------------------------------------------
 $available_classes = [];
 $available_groups = [];
+
+// Fetch classes from teacher's assigned subjects
 foreach ($allowed_combinations as $comb) {
     $available_classes[$comb['class_id']] = $comb['class_name'];
 }
-// Get groups from students list (since groups are associated with students, not subjects)
-foreach ($students_list as $student) {
-    $available_groups[$student['group_id']] = $student['group_name'];
+
+// Fetch ALL available groups/streams from the groups table
+$groups_sql = "SELECT id, group_name FROM `groups` ORDER BY group_name";
+$groups_res = mysqli_query($conn, $groups_sql);
+if ($groups_res) {
+    while ($group = mysqli_fetch_assoc($groups_res)) {
+        $available_groups[$group['id']] = $group['group_name'];
+    }
 }
+
 $available_classes = array_unique($available_classes);
 $available_groups = array_unique($available_groups);
 ?>
@@ -301,8 +378,11 @@ $available_groups = array_unique($available_groups);
 <div class="sidebar" id="sidebar">
     <h4 class="mb-4"><i class="fas fa-chalkboard-user me-2"></i> Teacher Panel</h4>
     <ul class="nav flex-column">
+        <li class="nav-item mb-2"><a href="#profile-section" class="nav-link text-white"><i class="fas fa-user-circle me-2"></i>Profile</a></li>
         <li class="nav-item mb-2"><a href="#result-section" class="nav-link text-white"><i class="fas fa-edit me-2"></i>Result Entry</a></li>
         <li class="nav-item mb-2"><a href="#my-results" class="nav-link text-white"><i class="fas fa-table-list me-2"></i>My Results</a></li>
+        <li class="nav-item mb-2"><a href="#routine-section" class="nav-link text-white"><i class="fas fa-calendar-week me-2"></i>View Routine</a></li>
+        <li class="nav-item mb-2"><a href="teacher-announcements.php" class="nav-link text-white"><i class="fas fa-bullhorn me-2"></i>Announcements</a></li>
         <li class="nav-item"><a href="logout.php" class="nav-link text-white"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
     </ul>
     <hr class="bg-secondary">
@@ -388,6 +468,72 @@ $available_groups = array_unique($available_groups);
         <div class="alert alert-danger alert-dismissible fade show" role="alert"><?= $error_msg ?> <button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
+    <!-- === TEACHER PROFILE SECTION === -->
+    <div class="card mb-4" id="profile-section">
+        <div class="card-header">
+            <i class="fas fa-user-circle me-2 text-primary"></i> My Profile
+        </div>
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-3 mb-3 mb-md-0 text-center">
+                    <div class="rounded-circle bg-light d-inline-flex align-items-center justify-content-center" style="width:120px; height:120px;">
+                        <i class="fas fa-user fa-3x text-secondary"></i>
+                    </div>
+                </div>
+                <div class="col-md-9">
+                    <h5 class="mb-1"><?= htmlspecialchars($teacher['first_name'] . ' ' . $teacher['last_name']) ?></h5>
+                    <p class="text-muted mb-2">Teacher ID: <strong><?= htmlspecialchars($teacher['teacher_id'] ?? ('TCH' . $teacher_id)) ?></strong></p>
+                    <div class="row">
+                        <div class="col-sm-6 mb-2">
+                            <strong>Email</strong><br>
+                            <?= htmlspecialchars($teacher['email'] ?? 'N/A') ?>
+                        </div>
+                        <div class="col-sm-6 mb-2">
+                            <strong>Phone</strong><br>
+                            <?= htmlspecialchars($teacher['phone'] ?? 'N/A') ?>
+                        </div>
+                        <div class="col-sm-6 mb-2">
+                            <strong>Status</strong><br>
+                            <?= htmlspecialchars(isset($teacher['status']) ? ($teacher['status'] ? 'Active' : 'Inactive') : 'N/A') ?>
+                        </div>
+                        <div class="col-sm-6 mb-2">
+                            <strong>Joined On</strong><br>
+                            <?= htmlspecialchars(!empty($teacher['joining_date']) ? date('d-m-Y', strtotime($teacher['joining_date'])) : 'N/A') ?>
+                        </div>
+                        <div class="col-sm-6 mb-2">
+                            <strong>Qualification</strong><br>
+                            <?= htmlspecialchars($teacher['qualification'] ?? 'N/A') ?>
+                        </div>
+                        <div class="col-sm-6 mb-2">
+                            <strong>Class Assignment</strong><br>
+                            <?= htmlspecialchars($teacher['class_name'] ?? 'N/A') ?>
+                        </div>
+                        <div class="col-12">
+                            <strong>Address</strong><br>
+                            <?= nl2br(htmlspecialchars($teacher['address'] ?? 'N/A')) ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <hr>
+            <h6 class="text-uppercase text-secondary small mb-3">Assigned Subjects</h6>
+            <?php if (count($allowed_combinations) > 0): ?>
+                <div class="row">
+                    <?php foreach ($allowed_combinations as $combo): ?>
+                        <div class="col-sm-6 col-lg-4 mb-2">
+                            <div class="border rounded p-2">
+                                <strong><?= htmlspecialchars($combo['subject_name']) ?></strong><br>
+                                <span class="text-muted small"><?= htmlspecialchars($combo['class_name']) ?><?php if (!empty($combo['stream'])): ?> — <?= htmlspecialchars($combo['stream']) ?><?php endif; ?></span>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <p class="text-muted mb-0">No assigned subjects available.</p>
+            <?php endif; ?>
+        </div>
+    </div>
+
     <!-- === FILTER & STUDENT MARKS TABLE === -->
     <div class="card" id="result-section">
         <div class="card-header">
@@ -406,19 +552,19 @@ $available_groups = array_unique($available_groups);
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label fw-semibold">👥 Group</label>
                     <select id="groupSelect" class="form-select" required disabled>
                         <option value="">First select class</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label fw-semibold">📖 Subject (Assigned)</label>
                     <select id="subjectSelect" class="form-select" required disabled>
                         <option value="">Select class & group first</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label fw-semibold">📝 Exam Type</label>
                     <select id="examTypeSelect" class="form-select" required disabled>
                         <option value="">Select subject first</option>
@@ -426,12 +572,16 @@ $available_groups = array_unique($available_groups);
                         <option value="monthly_test">Monthly Test</option>
                     </select>
                 </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">📅 Exam Date</label>
+                    <input type="date" id="examDateSelect" class="form-control" required disabled>
+                </div>
             </div>
 
-           
-
-            <!-- Students Marks Table -->
             <div id="tableContainer" style="display: none;">
+                <div id="editNotice" class="alert alert-info d-none" role="alert">
+                    Editing an existing submitted mark. Save will update the selected record.
+                </div>
                 <form method="POST" id="bulkResultForm">
                     <div class="table-responsive">
                         <table class="table table-hover table-striped" id="studentsMarksTable">
@@ -442,6 +592,7 @@ $available_groups = array_unique($available_groups);
                                     <th>Group</th>
                                     <th>Exam Name</th>
                                     <th>Subject</th>
+                                    <th>Exam Date</th>
                                     <th>Marks (0-100)</th>
                                     <th>Action</th>
                                 </tr>
@@ -479,7 +630,7 @@ $available_groups = array_unique($available_groups);
             <div class="table-responsive">
                 <table class="table table-hover mb-0">
                     <thead>
-                        <tr><th>Student</th><th>Class / Group</th><th>Subject</th><th>Marks</th><th>Status</th><th>Date</th><th></th></tr>
+                        <tr><th>Student</th><th>Class / Group</th><th>Subject</th><th>Exam Type</th><th>Marks</th><th>Exam Date</th><th>Status</th><th>Added Date</th><th>Action</th></tr>
                     </thead>
                     <tbody>
                         <?php if (count($recent_results) > 0): ?>
@@ -488,18 +639,67 @@ $available_groups = array_unique($available_groups);
                                     <td><strong><?= htmlspecialchars($res['student_name']) ?></strong><br><small class="text-muted">Roll: <?= $res['roll_number'] ?></small></td>
                                     <td><?= htmlspecialchars($res['class_name']) ?> / <?= htmlspecialchars($res['group_name']) ?></td>
                                     <td><?= htmlspecialchars($res['subject_name']) ?></td>
-                                    <td><span class="fw-bold"><?= $res['marks'] ?></span> / 100</td>
-                                    <td><span class="badge <?= ($res['marks'] >= 40) ? 'badge-pass' : 'badge-fail' ?> px-3 py-2"><?= ($res['marks'] >= 40) ? 'Pass' : 'Fail' ?></span></td>
-                                    <td><?= date('d-m-Y', strtotime($res['updated_at'])) ?></td>
-                                    <td><button class="btn btn-sm btn-outline-secondary rounded-pill" onclick="loadForEdit(<?= $res['student_id'] ?>, <?= $res['subject_id'] ?>, <?= $res['marks'] ?>)"><i class="fas fa-pen"></i> Edit</button></td>
+                                    <td><small class="badge bg-info"><?= ($res['test_type'] === 'weekly_test') ? 'Weekly Test' : 'Monthly Test' ?></small></td>
+                                    <td><span class="fw-bold"><?= $res['marks_obtained'] ?></span> / 100</td>
+                                    <td><?= isset($res['exam_date']) && $res['exam_date'] ? date('d-m-Y', strtotime($res['exam_date'])) : '<span class="text-muted">N/A</span>' ?></td>
+                                    <td><span class="badge <?= ($res['marks_obtained'] >= 40) ? 'badge-pass' : 'badge-fail' ?> px-3 py-2"><?= ($res['marks_obtained'] >= 40) ? 'Pass' : 'Fail' ?></span></td>
+                                    <td><?= date('d-m-Y', strtotime($res['created_at'])) ?></td>
+                                    <td><button class="btn btn-sm btn-outline-secondary rounded-pill" type="button" onclick="loadResultForEdit(<?= $res['id'] ?>)"><i class="fas fa-pen"></i> Edit</button></td>
                                 </tr>
                             <?php endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="7" class="text-center text-muted py-4">No results added yet. Use the form above to add marks.</td></tr>
+                            <tr><td colspan="9" class="text-center text-muted py-4">No results added yet. Use the form above to add marks.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <!-- === VIEW TEACHER ROUTINE === -->
+    <div class="card" id="routine-section">
+        <div class="card-header">
+            <i class="fas fa-calendar-week me-2 text-primary"></i> View Routine
+        </div>
+        <div class="card-body">
+            <?php if (count($teacher_routines) > 0): ?>
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Day</th>
+                                <th>Class</th>
+                                <th>Subject</th>
+                                <th>Time</th>
+                                <th>Room</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($teacher_routines as $routine): ?>
+                                <tr>
+                                    <td><?= htmlspecialchars($routine['day']) ?></td>
+                                    <td><?= htmlspecialchars($routine['class_name']) ?></td>
+                                    <td><?= htmlspecialchars($routine['subject_name']) ?></td>
+                                    <td><?= htmlspecialchars(date('h:i A', strtotime($routine['start_time']))) ?> - <?= htmlspecialchars(date('h:i A', strtotime($routine['end_time']))) ?></td>
+                                    <td><?= htmlspecialchars($routine['room']) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <div class="text-center text-muted py-4">
+                    <i class="fas fa-calendar-times" style="font-size: 3rem; opacity: 0.3;"></i>
+                    <p class="mt-3 mb-0">No class routine assigned yet.</p>
+                    <p class="small text-muted">Ask admin to create your routine from the class routine manager.</p>
+                </div>
+            <?php endif; ?>
+            <?php if (!empty($missing_routine_text)): ?>
+                <div class="alert alert-warning small mt-4">
+                    <strong>No routine defined for:</strong> <?= $missing_routine_text ?>.
+                    Ask admin to add routine entries for these assigned subjects.
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -515,7 +715,8 @@ const allowedCombinations = <?php
             'class_id' => $ac['class_id'],
             'subject_id' => $ac['subject_id'],
             'subject_name' => $ac['subject_name'],
-            'class_name' => $ac['class_name']
+            'class_name' => $ac['class_name'],
+            'stream' => $ac['stream']
         ];
     }
     echo json_encode($arr);
@@ -523,11 +724,31 @@ const allowedCombinations = <?php
 
 const studentsData = <?php echo json_encode($students_list); ?>;
 
+const availableGroups = <?php 
+    $arr = [];
+    foreach ($available_groups as $gid => $gname) {
+        $arr[] = [
+            'id' => $gid,
+            'name' => $gname
+        ];
+    }
+    echo json_encode($arr);
+?>;
+
+// DEBUG: Log available data
+console.log('DEBUG - Allowed Combinations:', allowedCombinations);
+console.log('DEBUG - Students Data:', studentsData);
+console.log('DEBUG - Available Groups:', availableGroups);
+console.log('DEBUG - Combinations count:', allowedCombinations.length);
+console.log('DEBUG - Students count:', studentsData.length);
+console.log('DEBUG - Groups count:', availableGroups.length);
+
 // Get DOM elements
 const classSelect = document.getElementById('classSelect');
 const groupSelect = document.getElementById('groupSelect');
 const subjectSelect = document.getElementById('subjectSelect');
 const examTypeSelect = document.getElementById('examTypeSelect');
+const examDateSelect = document.getElementById('examDateSelect');
 const tableContainer = document.getElementById('tableContainer');
 const emptyState = document.getElementById('emptyState');
 const marksTableBody = document.getElementById('marksTableBody');
@@ -539,11 +760,25 @@ let currentClassId = null;
 let currentGroupId = null;
 let currentSubjectId = null;
 let currentExamType = null;
+let currentExamDate = null;
 let currentFilteredStudents = [];
+let currentEditRecord = null;
+
+function resetEditState() {
+    currentEditRecord = null;
+    const editNotice = document.getElementById('editNotice');
+    if (editNotice) {
+        editNotice.classList.add('d-none');
+    }
+}
 
 // Helper: filter allowed groups for selected class
 function updateGroups() {
     const classId = parseInt(classSelect.value);
+    if (currentEditRecord && currentEditRecord.class_id !== classId) {
+        resetEditState();
+    }
+
     if (!classId) {
         groupSelect.disabled = true;
         groupSelect.innerHTML = '<option value="">-- Select Group --</option>';
@@ -555,26 +790,32 @@ function updateGroups() {
         return;
     }
     currentClassId = classId;
-    // Get unique groups for this class from studentsData
-    const groupMap = {};
-    studentsData.forEach(s => {
-        if (s.class_id == classId) {
-            groupMap[s.group_id] = s.group_name;
-        }
-    });
-    
-    const groupIds = Object.keys(groupMap);
-    if (groupIds.length === 0) {
-        groupSelect.innerHTML = '<option value="">No groups available</option>';
+
+    // Derive sections/streams from teacher-assigned subjects for the selected class
+    const classStreams = [...new Set(allowedCombinations
+        .filter(c => c.class_id == classId)
+        .map(c => c.stream)
+        .filter(stream => stream && stream.trim() !== ''))];
+
+    if (classStreams.length === 0) {
         groupSelect.disabled = true;
+        groupSelect.innerHTML = '<option value="">No assigned subject section for this class</option>';
+        subjectSelect.disabled = true;
+        subjectSelect.innerHTML = '<option value="">Select class first</option>';
+        examTypeSelect.disabled = true;
+        examTypeSelect.value = '';
+        hideTable();
         return;
     }
+
     groupSelect.disabled = false;
     let options = '<option value="">-- Select Group --</option>';
-    groupIds.forEach(gid => {
-        options += `<option value="${gid}">${groupMap[gid]}</option>`;
+    classStreams.forEach(streamName => {
+        const safeName = escapeHtml(streamName);
+        options += `<option value="${safeName}">${safeName}</option>`;
     });
     groupSelect.innerHTML = options;
+
     // Reset dependent fields
     subjectSelect.disabled = true;
     subjectSelect.innerHTML = '<option value="">Select group first</option>';
@@ -585,28 +826,31 @@ function updateGroups() {
 
 function updateSubjects() {
     const classId = parseInt(classSelect.value);
-    const groupId = parseInt(groupSelect.value);
-    if (!classId || !groupId) {
+    const selectedStream = groupSelect.value;
+    if (!classId || !selectedStream) {
         subjectSelect.disabled = true;
         subjectSelect.innerHTML = '<option value="">Select class & group</option>';
         examTypeSelect.disabled = true;
         hideTable();
         return;
     }
-    currentGroupId = groupId;
-    // Filter subjects for this class from allowedCombinations
-    const subjects = allowedCombinations.filter(c => c.class_id == classId);
+
+    currentGroupId = null;
+
+    // Filter subjects for this class + stream from allowedCombinations
+    const subjects = allowedCombinations.filter(c => c.class_id == classId && c.stream === selectedStream);
     if (subjects.length === 0) {
-        subjectSelect.innerHTML = '<option value="">No subjects assigned for this class</option>';
+        subjectSelect.innerHTML = '<option value="">No subjects assigned for this class and section</option>';
         subjectSelect.disabled = true;
         return;
     }
     subjectSelect.disabled = false;
     let options = '<option value="">-- Select Subject --</option>';
     subjects.forEach(subj => {
-        options += `<option value="${subj.subject_id}">${subj.subject_name}</option>`;
+        options += `<option value="${subj.subject_id}">${escapeHtml(subj.subject_name)}</option>`;
     });
     subjectSelect.innerHTML = options;
+
     // Reset exam type
     examTypeSelect.disabled = true;
     examTypeSelect.value = '';
@@ -619,30 +863,49 @@ function updateExamType() {
     if (!subjectId) {
         examTypeSelect.disabled = true;
         examTypeSelect.value = '';
+        examDateSelect.disabled = true;
+        examDateSelect.value = '';
         hideTable();
         return;
     }
     currentSubjectId = subjectId;
     examTypeSelect.disabled = false;
+    // Set default exam type to weekly_test
+    if (!examTypeSelect.value) {
+        examTypeSelect.value = 'weekly_test';
+    }
+    // Enable exam date field as well
+    examDateSelect.disabled = false;
+    // Trigger table update immediately after subject selection
+    updateTable();
 }
 
 function updateTable() {
     const classId = parseInt(classSelect.value);
-    const groupId = parseInt(groupSelect.value);
+    const groupValue = groupSelect.value;
     const subjectId = parseInt(subjectSelect.value);
-    const examType = examTypeSelect.value;
+    const examType = examTypeSelect.value || 'weekly_test';
+    const examDate = examDateSelect.value;
 
-    if (!classId || !groupId || !subjectId || !examType) {
+    // Require at minimum: class, group, and subject
+    if (!classId || !groupValue || !subjectId) {
         hideTable();
         return;
     }
 
     currentExamType = examType;
+    currentExamDate = examDate;
     
-    // Filter students for this class + group
-    currentFilteredStudents = studentsData.filter(s => 
-        s.class_id == classId && s.group_id == groupId
-    );
+    // Filter students for this class by student group stream
+    currentFilteredStudents = studentsData.filter(s => {
+        if (s.class_id != classId) {
+            return false;
+        }
+        if (groupValue === 'unassigned') {
+            return s.group_id === null || s.group_id === 0;
+        }
+        return String(s.group_name).trim().toLowerCase() === String(groupValue).trim().toLowerCase();
+    });
 
     if (currentFilteredStudents.length === 0) {
         hideTable();
@@ -659,6 +922,7 @@ function populateMarksTable() {
     const groupId = parseInt(groupSelect.value);
     const subjectId = parseInt(subjectSelect.value);
     const examType = examTypeSelect.value;
+    const examDate = examDateSelect.value;
 
     // Get subject and class names
     const subject = allowedCombinations.find(c => c.subject_id == subjectId);
@@ -667,6 +931,12 @@ function populateMarksTable() {
     let html = '';
     currentFilteredStudents.forEach((student, index) => {
         const rowId = `row_${student.id}_${subjectId}`;
+        const isEditRow = currentEditRecord && currentEditRecord.student_id === student.id && currentEditRecord.subject_id === subjectId;
+        const editResultId = isEditRow ? currentEditRecord.id : null;
+        const editMarks = isEditRow ? currentEditRecord.marks_obtained : '';
+        const editExamDate = isEditRow && currentEditRecord.exam_date ? currentEditRecord.exam_date : examDate;
+        const editExamType = isEditRow ? currentEditRecord.test_type : examType;
+
         html += `
             <tr>
                 <td>
@@ -677,18 +947,27 @@ function populateMarksTable() {
                 <td>${escapeHtml(student.group_name)}</td>
                 <td>
                     <select name="exam_type[${student.id}]" class="form-select form-select-sm">
-                        <option value="weekly_test" ${examType === 'weekly_test' ? 'selected' : ''}>Weekly Test</option>
-                        <option value="monthly_test" ${examType === 'monthly_test' ? 'selected' : ''}>Monthly Test</option>
+                        <option value="weekly_test" ${editExamType === 'weekly_test' ? 'selected' : ''}>Weekly Test</option>
+                        <option value="monthly_test" ${editExamType === 'monthly_test' ? 'selected' : ''}>Monthly Test</option>
                     </select>
                 </td>
                 <td>${escapeHtml(subjectName)}</td>
+                <td>
+                    <input type="date" 
+                           name="exam_date[${student.id}]" 
+                           class="form-control form-control-sm"
+                           value="${editExamDate}"
+                           data-student-id="${student.id}">
+                </td>
                 <td>
                     <input type="number" min="0" max="100" step="any" 
                            name="marks[${student.id}]" 
                            class="form-control form-control-sm marks-input"
                            placeholder="0" 
+                           value="${editMarks}"
                            data-student-id="${student.id}"
                            data-subject-id="${subjectId}">
+                    ${editResultId ? `<input type="hidden" name="result_id[${student.id}]" value="${editResultId}">` : ''}
                 </td>
                 <td>
                     <button type="button" class="btn btn-sm btn-outline-danger rounded-pill" 
@@ -720,6 +999,86 @@ function clearRow(btn) {
     marksInput.focus();
 }
 
+function loadResultForEdit(resultId) {
+    fetch('get-result.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'id=' + encodeURIComponent(resultId)
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.text().then(text => { throw new Error(text || response.statusText); });
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Result data loaded:', data);
+
+        currentEditRecord = {
+            id: data.id,
+            student_id: data.student_id,
+            subject_id: data.subject_id,
+            test_type: data.test_type,
+            marks_obtained: data.marks_obtained,
+            exam_date: data.exam_date,
+            class_id: data.class_id,
+            group_id: data.group_id,
+            group_name: data.group_name || ''
+        };
+
+        const editNotice = document.getElementById('editNotice');
+        if (editNotice) {
+            editNotice.textContent = 'Editing submitted marks for ' + data.student_name + ' (' + data.subject_name + ').';
+            editNotice.classList.remove('d-none');
+        }
+
+        classSelect.value = data.class_id;
+        updateGroups();
+
+        setTimeout(() => {
+            const subjectMatch = allowedCombinations.find(c => c.subject_id == data.subject_id);
+            const selectedGroup = subjectMatch && subjectMatch.stream ? subjectMatch.stream : (data.group_name ? data.group_name : ((data.group_id === null || data.group_id === 0) ? 'unassigned' : data.group_id));
+            groupSelect.value = selectedGroup;
+            if (!groupSelect.value && selectedGroup) {
+                // Try a more lenient match in case casing or formatting differs
+                const normalizedSelected = String(selectedGroup).trim().toLowerCase();
+                for (const opt of groupSelect.options) {
+                    if (opt.value.trim().toLowerCase() === normalizedSelected) {
+                        groupSelect.value = opt.value;
+                        break;
+                    }
+                }
+            }
+            updateSubjects();
+
+            setTimeout(() => {
+                subjectSelect.value = data.subject_id;
+                examTypeSelect.value = data.test_type || 'weekly_test';
+                examDateSelect.value = data.exam_date || '';
+
+                updateExamType();
+                updateTable();
+
+                setTimeout(() => {
+                    const marksInput = document.querySelector(`input[name="marks[${data.student_id}]"]`);
+                    if (marksInput) {
+                        marksInput.value = data.marks_obtained;
+                        marksInput.focus();
+                        marksInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 100);
+            }, 100);
+        }, 100);
+    })
+    .catch(error => {
+        console.error('Error loading result:', error);
+        alert('Error loading result for editing. Please try again.');
+    });
+}
+
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -732,10 +1091,17 @@ classSelect.addEventListener('change', () => {
 });
 
 groupSelect.addEventListener('change', () => {
+    const selectedGroup = groupSelect.value;
+    if (currentEditRecord && currentEditRecord.group_name !== selectedGroup) {
+        resetEditState();
+    }
     updateSubjects();
 });
 
 subjectSelect.addEventListener('change', () => {
+    if (currentEditRecord && parseInt(subjectSelect.value) !== currentEditRecord.subject_id) {
+        resetEditState();
+    }
     updateExamType();
 });
 
@@ -743,31 +1109,42 @@ examTypeSelect.addEventListener('change', () => {
     updateTable();
 });
 
+examDateSelect.addEventListener('change', () => {
+    updateTable();
+});
+
 // Handle bulk form submission
 bulkResultForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     
-    const formData = new FormData(bulkResultForm);
     const classId = parseInt(classSelect.value);
     const groupId = parseInt(groupSelect.value);
     const subjectId = parseInt(subjectSelect.value);
     const examType = examTypeSelect.value;
+    const examDate = examDateSelect.value;
 
     // Collect all marks data
     const marksData = [];
     currentFilteredStudents.forEach(student => {
         const marksInput = document.querySelector(`input[name="marks[${student.id}]"]`);
-        const examTypeSelect = document.querySelector(`select[name="exam_type[${student.id}]"]`);
+        const examDateInput = document.querySelector(`input[name="exam_date[${student.id}]"]`);
+        const examTypeInput = document.querySelector(`select[name="exam_type[${student.id}]"]`);
+        const resultIdInput = document.querySelector(`input[name="result_id[${student.id}]"]`);
         
         if (marksInput && marksInput.value !== '') {
             const marks = parseFloat(marksInput.value);
             if (marks >= 0 && marks <= 100) {
-                marksData.push({
+                const item = {
                     student_id: student.id,
                     subject_id: subjectId,
-                    exam_type: examTypeSelect ? examTypeSelect.value : examType,
-                    marks: marks
-                });
+                    exam_type: examTypeInput ? examTypeInput.value : examType,
+                    marks: marks,
+                    exam_date: examDateInput ? examDateInput.value : examDate
+                };
+                if (resultIdInput && resultIdInput.value) {
+                    item.result_id = parseInt(resultIdInput.value);
+                }
+                marksData.push(item);
             }
         }
     });
@@ -779,7 +1156,7 @@ bulkResultForm.addEventListener('submit', async (e) => {
 
     // Send to server
     try {
-        const response = await fetch(window.location.pathname + '?save_bulk_marks=1', {
+        const response = await fetch('save-teacher-marks.php', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -787,7 +1164,29 @@ bulkResultForm.addEventListener('submit', async (e) => {
             body: JSON.stringify({ marks: marksData })
         });
 
-        const result = await response.json();
+        // Check if response is ok
+        if (!response.ok) {
+            const text = await response.text();
+            console.error('Server error:', text);
+            alert('Server error ' + response.status + ':\n' + text);
+            return;
+        }
+
+        // Get response text first to debug any issues
+        const responseText = await response.text();
+        console.log('Response:', responseText);
+        
+        // Try to parse JSON
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (jsonError) {
+            console.error('JSON parse error:', jsonError);
+            console.error('Response was:', responseText);
+            alert('Error parsing response: ' + jsonError.message + '\nRaw response: ' + responseText);
+            return;
+        }
+
         if (result.success) {
             alert('Marks saved successfully!');
             bulkResultForm.reset();
@@ -795,11 +1194,13 @@ bulkResultForm.addEventListener('submit', async (e) => {
             // Reload page to show in recent results
             setTimeout(() => location.reload(), 500);
         } else {
-            alert('Error: ' + (result.message || 'Unknown error'));
+            const errorMsg = result.message || 'Unknown error';
+            const errors = result.errors ? '\n\nDetails:\n' + result.errors.join('\n') : '';
+            alert('Error: ' + errorMsg + errors);
         }
     } catch (error) {
         console.error('Error:', error);
-        alert('An error occurred while saving marks.');
+        alert('An error occurred while saving marks: ' + error.message);
     }
 });
 
@@ -813,26 +1214,22 @@ document.getElementById('menuToggle')?.addEventListener('click', () => {
 </script>
 
 <?php
-// ----- AJAX handler for fetching existing marks -----
-if (isset($_GET['ajax_get_mark']) && isset($_GET['student_id']) && isset($_GET['subject_id'])) {
-    header('Content-Type: application/json');
-    $student_id = intval($_GET['student_id']);
-    $subject_id = intval($_GET['subject_id']);
-    // Security: only if teacher is allowed for this subject
-    $check = mysqli_query($conn, "SELECT 1 FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id");
-    if (mysqli_num_rows($check) == 0) {
-        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
-        exit;
-    }
-    $mark_sql = "SELECT marks FROM results WHERE student_id = $student_id AND subject_id = $subject_id";
-    $mark_res = mysqli_query($conn, $mark_sql);
-    if ($row = mysqli_fetch_assoc($mark_res)) {
-        echo json_encode(['success' => true, 'marks' => $row['marks']]);
-    } else {
-        echo json_encode(['success' => true, 'marks' => null]);
-    }
-    exit;
+// ----- Handler for saving manual marks -----
+// NOTE: Moved to separate file: save-manual-marks.php
+// This keeps the JSON response clean without HTML interference
+/*
+if (isset($_GET['save_manual_marks']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // ... handler code moved to save-manual-marks.php
 }
+*/
+
+// ----- AJAX handler for fetching existing marks -----
+// NOTE: This handler is now in save-manual-marks.php if needed
+/*
+if (isset($_GET['ajax_get_mark']) && isset($_GET['student_id']) && isset($_GET['subject_id'])) {
+    // ... handler code moved if needed
+}
+*/
 ?>
 
 <script>

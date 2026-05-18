@@ -340,7 +340,7 @@
 
 <div class="container">
 
-    <h1>📞 Contact Coaching Pro</h1>
+    <h1>📞 Contact Us </h1>
     <p class="subtitle">We're Here to Help • Get in Touch With Us</p>
 
     <!-- Contact Grid -->
@@ -361,7 +361,7 @@
                 <div class="info-icon">📞</div>
                 <div class="info-text">
                     <h3>Phone Numbers</h3>
-                    <p>Hotline: 2987<br>Mobile: +880 1712-345678</p>
+                    <p>Hotline: 01305421948<br>Mobile: +880 1712-345678</p>
                 </div>
             </div>
 

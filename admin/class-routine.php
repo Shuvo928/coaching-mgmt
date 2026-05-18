@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../includes/db.php';
+/** @var mysqli $conn */
 require_once '../includes/auth.php';
 
 checkAuth();
@@ -22,9 +23,29 @@ if(isset($_POST['save_routine'])) {
         exit();
     }
 
-    $eligibility_check = mysqli_query($conn, "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id LIMIT 1");
+    $subject_check = mysqli_query($conn, "SELECT id FROM subjects WHERE id = $subject_id AND class_id = $class_id LIMIT 1");
+    if(!$subject_check || mysqli_num_rows($subject_check) === 0) {
+        $_SESSION['error'] = 'Selected subject does not belong to the chosen class.';
+        header('Location: class-routine.php');
+        exit();
+    }
+
+    $teacher_check = mysqli_query($conn, "SELECT id FROM teachers WHERE id = $teacher_id AND status = 1 LIMIT 1");
+    if(!$teacher_check || mysqli_num_rows($teacher_check) === 0) {
+        $_SESSION['error'] = 'Selected teacher is not registered or active.';
+        header('Location: class-routine.php');
+        exit();
+    }
+
+    $eligibility_sql = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id";
+    $column_check = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+    if($column_check && mysqli_num_rows($column_check) > 0) {
+        $eligibility_sql .= " AND class_id = $class_id";
+    }
+
+    $eligibility_check = mysqli_query($conn, $eligibility_sql);
     if(!$eligibility_check || mysqli_num_rows($eligibility_check) === 0) {
-        $_SESSION['error'] = 'Selected teacher is not eligible for the chosen subject.';
+        $_SESSION['error'] = 'Selected teacher is not assigned to this subject/class combination.';
         header('Location: class-routine.php');
         exit();
     }
@@ -53,7 +74,7 @@ if(isset($_GET['delete_routine']) && is_numeric($_GET['delete_routine'])) {
 
 $classes = mysqli_query($conn, 'SELECT * FROM classes ORDER BY class_name, section');
 $subjects = mysqli_query($conn, 'SELECT * FROM subjects ORDER BY class_id, subject_name');
-$teachers = mysqli_query($conn, 'SELECT ts.teacher_id, t.first_name, t.last_name, ts.subject_id, s.class_id FROM teacher_subjects ts JOIN teachers t ON ts.teacher_id = t.id JOIN subjects s ON ts.subject_id = s.id ORDER BY t.first_name, t.last_name');
+$teachers = mysqli_query($conn, 'SELECT ts.teacher_id, t.first_name, t.last_name, ts.subject_id, s.class_id FROM teacher_subjects ts JOIN teachers t ON ts.teacher_id = t.id AND t.status = 1 JOIN subjects s ON ts.subject_id = s.id ORDER BY t.first_name, t.last_name');
 
 $routines = mysqli_query($conn, "SELECT cr.*, c.class_name, s.subject_name, s.subject_code, CONCAT(t.first_name, ' ', t.last_name) AS teacher_name 
                                 FROM class_routine cr 
@@ -73,7 +94,7 @@ while($row = mysqli_fetch_assoc($teachers)) {
     $teacherEligibility[] = $row;
 }
 
-function escape($text) {
+function escape(string $text): string {
     return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
 }
 ?>
@@ -256,7 +277,7 @@ function escape($text) {
                                         <td><?php echo escape($routine['day']); ?></td>
                                         <td><?php echo escape($routine['class_name']); ?></td>
                                         <td><?php echo escape($routine['subject_name']); ?></td>
-                                        <td><?php echo escape($routine['teacher_name'] ?: 'N/A'); ?></td>
+                                        <td><?php echo escape(trim($routine['teacher_name'] ?? '') ?: 'Unassigned teacher'); ?></td>
                                         <td><?php echo escape(date('h:i A', strtotime($routine['start_time'])) . ' - ' . date('h:i A', strtotime($routine['end_time']))); ?></td>
                                         <td><?php echo escape($routine['room']); ?></td>
                                         <td>

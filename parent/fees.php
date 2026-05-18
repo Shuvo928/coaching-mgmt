@@ -4,8 +4,9 @@ require_once '../includes/db.php';
 require_once '../includes/parent_helpers.php';
 require_once '../includes/payment_helpers.php';
 
-// Ensure payment history table exists
+// Ensure payment history and sms log tables exist
 createPaymentHistoryTable($conn);
+ensureSmsLogsTableExists($conn);
 
 // Check if parent is logged in
 if(!isset($_SESSION['parent_id'])) {
@@ -1138,7 +1139,7 @@ if ($receipt_to_view) {
 
         function updateSelectedFee() {
             const selectedId = parseInt(document.getElementById('fee_month').value, 10);
-            const selected = feeOptions.find(option => option.id === selectedId);
+            const selected = feeOptions.find(option => parseInt(option.id, 10) === selectedId);
             if (!selected) {
                 currentDueAmount = null;
                 document.getElementById('due_amount').textContent = '0.00';
@@ -1146,16 +1147,18 @@ if ($receipt_to_view) {
                 return;
             }
             document.getElementById('monthly_fee_id').value = selected.id;
-            document.getElementById('due_amount').textContent = selected.due_amount.toFixed(2);
-            document.getElementById('payment_amount').value = selected.due_amount.toFixed(2);
-            document.getElementById('payment_amount').max = selected.due_amount;
-            currentDueAmount = selected.due_amount;
+            const dueAmountValue = parseFloat(selected.due_amount) || 0;
+            document.getElementById('due_amount').textContent = dueAmountValue.toFixed(2);
+            document.getElementById('payment_amount').value = dueAmountValue.toFixed(2);
+            document.getElementById('payment_amount').max = dueAmountValue;
+            currentDueAmount = dueAmountValue;
             document.getElementById('amount_error').textContent = '';
             document.getElementById('method_error').textContent = '';
         }
 
         function initializeMonthlyPayment(monthlyFeeId, dueAmount, monthName) {
             populateMonthDropdown(monthlyFeeId);
+            currentDueAmount = parseFloat(dueAmount) || null;
             updateSelectedFee();
             document.getElementById('monthly_fee_id').value = monthlyFeeId;
             document.getElementById('transaction_id').value = '';

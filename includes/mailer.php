@@ -5,8 +5,9 @@ use PHPMailer\PHPMailer\Exception;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-function sendEmail($to, $subject, $message) {
+function sendEmail($to, $subject, $message, $isHtml = true, &$errorMessage = null) {
     if (empty($to)) {
+        $errorMessage = 'Recipient email address is empty.';
         return false;
     }
 
@@ -29,14 +30,19 @@ function sendEmail($to, $subject, $message) {
         $mail->setFrom($fromEmail, $fromName);
         $mail->addAddress($to);
 
-        $mail->isHTML(false);
+        $mail->isHTML($isHtml);
         $mail->Subject = $subject;
         $mail->Body    = $message;
         $mail->AltBody = strip_tags($message);
 
-        return $mail->send();
+        $sent = $mail->send();
+        if (!$sent) {
+            $errorMessage = $mail->ErrorInfo;
+        }
+        return $sent;
     } catch (Exception $e) {
-        error_log('PHPMailer error: ' . $mail->ErrorInfo);
+        $errorMessage = $mail->ErrorInfo ?: $e->getMessage();
+        error_log('PHPMailer error: ' . $errorMessage);
         return false;
     }
 }

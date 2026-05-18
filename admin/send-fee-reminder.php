@@ -1,5 +1,6 @@
 <?php
 require_once '../includes/db.php';
+require_once '../includes/mailer.php';
 require_once 'send-sms.php'; // Reuse SMS function
 
 if(isset($_POST['student_id'])) {
@@ -12,11 +13,19 @@ if(isset($_POST['student_id'])) {
                      aa.parent_email, aa.parent_name
               FROM students s
               LEFT JOIN fee_collections fc ON s.id = fc.student_id AND fc.payment_status != 'paid'
-              LEFT JOIN admission_applications aa ON s.phone = aa.mobile OR s.phone = aa.phone
+              LEFT JOIN admission_applications aa ON s.phone = aa.phone
               WHERE s.id = $student_id
               GROUP BY s.id";
     
     $result = mysqli_query($conn, $query);
+    if(!$result) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Database query failed: ' . mysqli_error($conn)
+        ]);
+        exit;
+    }
+    
     $student = mysqli_fetch_assoc($result);
     
     if($student) {
@@ -25,7 +34,7 @@ if(isset($_POST['student_id'])) {
             if(!empty($student['parent_email'])) {
                 $parent_name = !empty($student['parent_name']) ? $student['parent_name'] : 'Dear Parent';
                 $student_name = $student['first_name'] . ' ' . $student['last_name'];
-                $due_amount = !empty($student['total_due']) ? number_format($student['total_due'], 2) : '0.00';
+                $due_month = date('F Y');
                 
                 $subject = "Fee Payment Reminder - " . $student_name;
                 $message = "
@@ -37,7 +46,7 @@ if(isset($_POST['student_id'])) {
                         .header { background: #667eea; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
                         .content { padding: 20px; }
                         .footer { background: #f5f5f5; padding: 15px; text-align: center; font-size: 12px; }
-                        .amount { font-size: 24px; font-weight: bold; color: #f44336; }
+                        .highlight { font-size: 18px; font-weight: bold; color: #f44336; }
                     </style>
                 </head>
                 <body>
@@ -47,8 +56,7 @@ if(isset($_POST['student_id'])) {
                         </div>
                         <div class='content'>
                             <p>Dear $parent_name,</p>
-                            <p>This is a friendly reminder that your child <strong>$student_name</strong> has pending fees.</p>
-                            <p><strong>Outstanding Amount:</strong> <span class='amount'>৳$due_amount</span></p>
+                            <p>This is a friendly reminder that your child <strong>$student_name</strong> has pending fees for <span class='highlight'>$due_month</span>.</p>
                             <p>Please make the payment at your earliest convenience to avoid any inconvenience.</p>
                             <p><strong>Payment Methods:</strong></p>
                             <ul>
@@ -67,16 +75,13 @@ if(isset($_POST['student_id'])) {
                 </body>
                 </html>";
                 
-                // Use PHP mail function
-                $headers = "MIME-Version: 1.0" . "\r\n";
-                $headers .= "Content-type: text/html; charset=UTF-8" . "\r\n";
-                $headers .= "From: coaching@center.com" . "\r\n";
-                
-                $email_sent = mail($student['parent_email'], $subject, $message, $headers);
+                // Send using application mail helper (PHPMailer via SMTP)
+                $email_error = '';
+                $email_sent = sendEmail($student['parent_email'], $subject, $message, true, $email_error);
                 
                 echo json_encode([
                     'success' => $email_sent,
-                    'message' => $email_sent ? 'Email sent successfully to ' . $student['parent_email'] : 'Failed to send email'
+                    'message' => $email_sent ? 'Email sent successfully to ' . $student['parent_email'] : 'Failed to send email: ' . ($email_error ?: 'unknown error')
                 ]);
             } else {
                 echo json_encode([

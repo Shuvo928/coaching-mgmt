@@ -342,7 +342,7 @@ $daily_result = mysqli_query($conn, $daily_query);
                 <li>
                     <a href="results.php">
                         <i class="fas fa-chart-bar"></i>
-                        Results & Grades
+                        Check Results
                     </a>
                 </li>
                 <li>
@@ -351,7 +351,12 @@ $daily_result = mysqli_query($conn, $daily_query);
                         Fees & Payments
                     </a>
                 </li>
-                
+                 <li>
+                    <a href="../parent-discontinue.php" onclick="return confirm('Are you sure you want to remove this account permanently?');">
+                        <i class="fas fa-sign-out-alt"></i>
+                         discontinues enrollment 
+                    </a>
+                </li>
                 <li>
                     <a href="../parent-logout.php">
                         <i class="fas fa-sign-out-alt"></i>

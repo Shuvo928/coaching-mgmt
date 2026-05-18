@@ -122,21 +122,9 @@
                 <td>Higher Mathematics</td>
                 <td>2:20 PM – 4:20 PM</td>
             </tr>
-            <tr>
-                <td>Tuesday</td>
-                <td>General Mathematics</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
-            <tr>
-                <td>Wednesday</td>
-                <td>Bangla (1st & 2nd Paper)</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
-            <tr>
-                <td>Thursday</td>
-                <td>English (1st & 2nd Paper)</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
+            
+            
+           
         </table>
     </div>
 
@@ -164,21 +152,9 @@
                 <td>Business Entrepreneurship</td>
                 <td>2:20 PM – 4:20 PM</td>
             </tr>
-            <tr>
-                <td>Tuesday</td>
-                <td>General Mathematics</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
-            <tr>
-                <td>Wednesday</td>
-                <td>Bangla (1st & 2nd Paper)</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
-            <tr>
-                <td>Thursday</td>
-                <td>English (1st & 2nd Paper)</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
+           
+            
+           
         </table>
     </div>
 
@@ -206,21 +182,7 @@
                 <td>Civics + Economics</td>
                 <td>2:20 PM – 4:20 PM</td>
             </tr>
-            <tr>
-                <td>Tuesday</td>
-                <td>General Mathematics</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
-            <tr>
-                <td>Wednesday</td>
-                <td>Bangla (1st & 2nd Paper)</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
-            <tr>
-                <td>Thursday</td>
-                <td>English (1st & 2nd Paper)</td>
-                <td>2:20 PM – 4:20 PM</td>
-            </tr>
+           
         </table>
     </div>
 

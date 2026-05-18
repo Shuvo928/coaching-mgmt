@@ -102,6 +102,31 @@ Expense category creation
 
 Daily expense recording
 
+📢 Announcement Management
+
+Teacher creation and management of announcements for classes
+
+Class and group-specific announcements
+
+Student viewing of relevant announcements
+
+Parent viewing of child's announcements
+
+Announcement display with timestamps and teacher information
+
+🔔 Notification System
+
+**NEW!** Automatic notifications for important events:
+- Admin receives notifications for pending admission approvals
+- Teachers receive notifications when class routines are updated
+- Students receive notifications when their results are posted
+- Parents receive notifications about upcoming fee payments
+- Real-time bell icon with unread notification badge in all dashboards
+- Simple date-based ordering (latest first)
+- Automatic 7-day retention with auto-delete
+- In-app only delivery (view-only, no external notifications)
+- Mark notifications as read or delete them individually
+
 Voucher generation
 
 Expense tracking and analysis

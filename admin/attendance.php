@@ -7,6 +7,8 @@ require_once '../includes/auth.php';
 checkAuth();
 checkRole(['admin', 'teacher']);
 
+$pending_admissions = getPendingAdmissionsCount($conn);
+
 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
 $class_id = isset($_GET['class_id']) ? $_GET['class_id'] : '';
 

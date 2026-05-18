@@ -1,6 +1,8 @@
 <?php
 session_start();
-require_once '../includes/db.php';require_once '../includes/parent_helpers.php';
+require_once '../includes/db.php';
+/** @var mysqli $conn */
+require_once '../includes/parent_helpers.php';
 // Check if user is logged in
 if(!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -44,32 +46,90 @@ $unpaid_admission = mysqli_fetch_assoc(
 )['total'] ?? 0;
 
 $stats['pending_fees'] = $unpaid_monthly + $unpaid_admission;
+$stats['discontinue_requests'] = getPendingParentDiscontinueRequestCount($conn);
+$stats['pending_admissions'] = getPendingAdmissionsCount($conn);
 
 // Monthly Income = (Paid Admission Fees) + (Paid Monthly Fees) for current month
 $month = date('m');
 $year = date('Y');
 
 // Get paid monthly fees for current month
-$paid_monthly = mysqli_fetch_assoc(
-    mysqli_query($conn, "SELECT SUM(paid_amount) as total FROM fee_collections WHERE MONTH(payment_date) = $month AND YEAR(payment_date) = $year AND payment_status = 'paid'")
-)['total'] ?? 0;
+$stmt = mysqli_prepare($conn, "SELECT SUM(paid_amount) as total FROM fee_collections WHERE MONTH(payment_date) = ? AND YEAR(payment_date) = ? AND payment_status = 'paid'");
+mysqli_stmt_bind_param($stmt, 'ii', $month, $year);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$paid_monthly = mysqli_fetch_assoc($result)['total'] ?? 0;
 
 // Get paid admission fees for current month
-$paid_admission = mysqli_fetch_assoc(
-    mysqli_query($conn, "SELECT SUM(application_fee) as total FROM admission_applications WHERE MONTH(application_date) = $month AND YEAR(application_date) = $year AND application_fee > 0 AND transaction_id <> ''")
-)['total'] ?? 0;
+$stmt = mysqli_prepare($conn, "SELECT SUM(application_fee) as total FROM admission_applications WHERE MONTH(application_date) = ? AND YEAR(application_date) = ? AND application_fee > 0 AND transaction_id <> ''");
+mysqli_stmt_bind_param($stmt, 'ii', $month, $year);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$paid_admission = mysqli_fetch_assoc($result)['total'] ?? 0;
 
 $stats['monthly_income'] = $paid_monthly + $paid_admission;
 
 // Today's Attendance
 $today = date('Y-m-d');
-$result = mysqli_query($conn, "SELECT COUNT(*) as total FROM attendance WHERE date = '$today' AND status = 'Present'");
+$stmt = mysqli_prepare($conn, "SELECT COUNT(*) as total FROM attendance WHERE date = ? AND status = 'Present'");
+mysqli_stmt_bind_param($stmt, 's', $today);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
 $stats['today_present'] = mysqli_fetch_assoc($result)['total'] ?? 0;
 
 // Upcoming Exams (next 7 days)
 $next_week = date('Y-m-d', strtotime('+7 days'));
-$result = mysqli_query($conn, "SELECT COUNT(*) as total FROM exam_routine WHERE exam_date BETWEEN '$today' AND '$next_week'");
+$stmt = mysqli_prepare($conn, "SELECT COUNT(*) as total FROM exam_routine WHERE exam_date BETWEEN ? AND ?");
+mysqli_stmt_bind_param($stmt, 'ss', $today, $next_week);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
 $stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
+
+// Handle deleting parent account
+if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_parent'])) {
+    $admission_id = (int) $_POST['admission_id'];
+    
+    // Get the parent info first
+    $parent_query = "SELECT parent_email, parent_phone FROM admission_applications WHERE id = $admission_id LIMIT 1";
+    $parent_result = mysqli_query($conn, $parent_query);
+    $parent_data = mysqli_fetch_assoc($parent_result);
+    
+    if ($parent_data) {
+        $parent_email = mysqli_real_escape_string($conn, $parent_data['parent_email']);
+        $parent_phone = mysqli_real_escape_string($conn, $parent_data['parent_phone']);
+        
+        // Delete from users table (parent account)
+        mysqli_query($conn, "DELETE FROM users WHERE email = '$parent_email' AND role = 'parent'");
+        
+        // Get parent_id before deleting from parents table
+        $get_parent_id = "SELECT id FROM parents WHERE parent_email = '$parent_email'";
+        $parent_id_result = mysqli_query($conn, $get_parent_id);
+        if ($parent_id_result && $row = mysqli_fetch_assoc($parent_id_result)) {
+            $parent_id = (int)$row['id'];
+            
+            // Clear parent_id from students table
+            mysqli_query($conn, "UPDATE students SET parent_id = NULL WHERE parent_id = $parent_id");
+        }
+        
+        // Delete from parents table
+        $delete_parent = "DELETE FROM parents WHERE parent_email = '$parent_email'";
+        $delete_result = mysqli_query($conn, $delete_parent);
+        
+        // Clear username from admission_applications
+        mysqli_query($conn, "UPDATE admission_applications SET username = NULL WHERE id = $admission_id");
+        
+        if ($delete_result && mysqli_affected_rows($conn) > 0) {
+            $_SESSION['success'] = "Parent account deleted successfully!";
+        } else {
+            $_SESSION['error'] = "Error deleting parent account. Please try again.";
+        }
+    } else {
+        $_SESSION['error'] = "Admission record not found.";
+    }
+    
+    header("Location: dashboard.php");
+    exit();
+}
 
 // Handle setting parent credentials
 if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['set_credentials'])) {
@@ -77,7 +137,11 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['set_credentials'])) {
     $username = mysqli_real_escape_string($conn, $_POST['username']);
     $password_hash = password_hash($_POST['password'], PASSWORD_DEFAULT);
 
-    $app_query = "SELECT parent_name, parent_email, parent_phone, COALESCE(mobile, phone) AS student_mobile FROM admission_applications WHERE id = $admission_id AND status = 'Approved' LIMIT 1";
+    $hasMobileColumn = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'mobile'")) > 0;
+    $hasPhoneColumn = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'phone'")) > 0;
+    $phoneField = $hasMobileColumn ? 'mobile' : ($hasPhoneColumn ? 'phone' : "''");
+
+    $app_query = "SELECT parent_name, parent_email, parent_phone, $phoneField AS student_mobile FROM admission_applications WHERE id = $admission_id AND status = 'Approved' LIMIT 1";
     $app_result = mysqli_query($conn, $app_query);
     $app = mysqli_fetch_assoc($app_result);
 
@@ -94,6 +158,11 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['set_credentials'])) {
 
         if ($parent_id) {
             linkParentToStudentByPhone($conn, $parent_id, $app['student_mobile']);
+            
+            // Update admission_applications table with username for display
+            $update_admission = "UPDATE admission_applications SET username = '$username' WHERE id = $admission_id";
+            mysqli_query($conn, $update_admission);
+            
             $_SESSION['success'] = "Parent credentials set successfully!";
         } else {
             $_SESSION['error'] = "Error creating parent account.";
@@ -125,6 +194,9 @@ $admissions = mysqli_query($conn, $query);
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -145,16 +217,19 @@ $admissions = mysqli_query($conn, $query);
         .sidebar {
             width: 280px;
             background: linear-gradient(135deg, #1e3c72, #2a5298);
-            min-height: 100vh;
+            height: 100vh;
             color: white;
             position: fixed;
             transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
         }
 
         .sidebar-header {
             padding: 30px 20px;
             text-align: center;
             border-bottom: 1px solid rgba(255,255,255,0.1);
+            flex-shrink: 0;
         }
 
         .sidebar-header h3 {
@@ -164,6 +239,8 @@ $admissions = mysqli_query($conn, $query);
 
         .sidebar-menu {
             padding: 20px 0;
+            flex: 1;
+            overflow-y: auto;
         }
 
         .menu-item {
@@ -389,6 +466,15 @@ $admissions = mysqli_query($conn, $query);
                 grid-template-columns: 1fr;
             }
         }
+
+        .notification-badge {
+            background: red;
+            color: white;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 50%;
+            margin-left: 5px;
+        }
     </style>
 </head>
 <body>
@@ -397,7 +483,7 @@ $admissions = mysqli_query($conn, $query);
         <div class="sidebar">
             <div class="sidebar-header">
                 <i class="fas fa-graduation-cap fa-3x"></i>
-                <h3>CoachingPro</h3>
+                <h3>Coaching</h3>
                 <small>Admin Panel</small>
             </div>
             
@@ -406,30 +492,34 @@ $admissions = mysqli_query($conn, $query);
                     <i class="fas fa-home"></i>
                     <span>Dashboard</span>
                 </a>
+                <a href="admission-management.php" class="menu-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Admissions</span>
+                    <?php if($stats['pending_admissions'] > 0): ?>
+                        <span class="notification-badge"><?php echo $stats['pending_admissions']; ?></span>
+                    <?php endif; ?>
+                </a>
+
                 <a href="student-management.php" class="menu-item">
                     <i class="fas fa-user-graduate"></i>
                     <span>Student Management</span>
                 </a>
+                 
                 <a href="teacher-management.php" class="menu-item">
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
                 </a>
-                <a href="add_routine.php" class="menu-item">
-    <i class="fas fa-calendar-plus"></i>
-    <span>Add Routine</span>
+                
+               
+                <a href="routine-management.php" class="menu-item">
+    <i class="fas fa-calendar-alt"></i>
+    <span>Routine Management</span>
 </a>
-                <a href="admission-management.php" class="menu-item">
-                    <i class="fas fa-file-alt"></i>
-                    <span>Admissions</span>
+                <a href="parent-discontinue-requests.php" class="menu-item">
+                    <i class="fas fa-user-slash"></i>
+                    <span>Discontinue Requests</span>
                 </a>
-                <a href="#parent-management" class="menu-item">
-                    <i class="fas fa-user-circle"></i>
-                    <span>Parent Accounts</span>
-                </a>
-                <a href="attendance.php" class="menu-item">
-                    <i class="fas fa-calendar-check"></i>
-                    <span>Attendance</span>
-                </a>
+                
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>
@@ -459,12 +549,7 @@ $admissions = mysqli_query($conn, $query);
                         <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown">
                             <img src="https://ui-avatars.com/api/?name=<?php echo $_SESSION['display_name']; ?>&background=2a5298&color=fff" alt="User">
                         </button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>Settings</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item text-danger" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
-                        </ul>
+                        
                     </div>
                 </div>
             </div>
@@ -517,52 +602,22 @@ $admissions = mysqli_query($conn, $query);
 
                 <div class="stat-card">
                     <div class="stat-info">
-                        <h3><?php echo $stats['today_present']; ?></h3>
-                        <p>Present Today</p>
+                        <h3><?php echo $stats['discontinue_requests']; ?></h3>
+                        <p>Discontinue Requests</p>
                     </div>
-                    <div class="stat-icon purple">
-                        <i class="fas fa-calendar-check"></i>
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-info">
-                        <h3>৳<?php echo number_format($stats['monthly_income']); ?></h3>
-                        <p>Monthly Income</p>
-                    </div>
-                    <div class="stat-icon green">
-                        <i class="taka-sign"></i>
+                    <div class="stat-icon red">
+                        <i class="fas fa-bell"></i>
                     </div>
                 </div>
 
                 
+
+                
+
+                
             </div>
 
-            <!-- Charts Row -->
-            <div class="charts-row">
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h5>Attendance Overview (Last 7 Days)</h5>
-                        <select class="form-select form-select-sm w-auto">
-                            <option>This Week</option>
-                            <option>Last Week</option>
-                            <option>This Month</option>
-                        </select>
-                    </div>
-                    <canvas id="attendanceChart" style="height: 300px;"></canvas>
-                </div>
-
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h5>Fee Collection</h5>
-                        <select class="form-select form-select-sm w-auto">
-                            <option>2026</option>
-                            <option>2025</option>
-                        </select>
-                    </div>
-                    <canvas id="feeChart" style="height: 300px;"></canvas>
-                </div>
-            </div>
+           
 
            
 
@@ -594,6 +649,9 @@ $admissions = mysqli_query($conn, $query);
                                 <td><?php echo $admission['username'] ? htmlspecialchars($admission['username']) : '<span class="text-muted">Not Set</span>'; ?></td>
                                 <td>
                                     <button class="btn btn-sm btn-primary" onclick="setCredentials(<?php echo $admission['id']; ?>)">Set Credentials</button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteParent(<?php echo $admission['id']; ?>, '<?php echo htmlspecialchars($admission['full_name']); ?>')" title="Delete Parent Account">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
                                 </td>
                             </tr>
                             <?php endwhile; ?>
@@ -640,6 +698,54 @@ $admissions = mysqli_query($conn, $query);
             document.getElementById('admission_id').value = id;
             var modal = new bootstrap.Modal(document.getElementById('credentialsModal'));
             modal.show();
+        }
+        
+        // Function to delete parent account
+        function deleteParent(id, studentName) {
+            if (confirm('Are you sure you want to delete the parent account for ' + studentName + '? This action cannot be undone.')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `
+                    <input type="hidden" name="admission_id" value="${id}">
+                    <input type="hidden" name="delete_parent" value="1">
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        // Initialize Attendance Chart
+        const attendanceCtx = document.getElementById('attendanceChart')?.getContext('2d');
+        if (attendanceCtx) {
+            new Chart(attendanceCtx, {
+                type: 'line',
+                data: {
+                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                    datasets: [{
+                        label: 'Present',
+                        data: [65, 59, 80, 81, 56, 55, 70],
+                        borderColor: '#2a5298',
+                        backgroundColor: 'rgba(42, 82, 152, 0.1)',
+                        borderWidth: 2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
         }
     </script>
 </body>

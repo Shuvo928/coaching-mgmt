@@ -3,6 +3,9 @@ session_start();
 require_once '../includes/db.php';
 require_once __DIR__ . '/../includes/mailer.php';
 require_once '../includes/payment_helpers.php';
+require_once __DIR__ . '/../includes/parent_helpers.php';
+
+/** @var mysqli $conn */
 
 // Check if user is logged in
 if(!isset($_SESSION['user_id'])) {
@@ -16,8 +19,10 @@ if($_SESSION['role'] != 'admin') {
     exit();
 }
 
+$pending_admissions = getPendingAdmissionsCount($conn);
+
 // Function to send SMS
-function sendSMS($mobile, $message) {
+function sendSMS(string $mobile, string $message): bool {
     $api_key = "K6uCeGByYLJRtIIZRzQ";
     $mobile = "88" . preg_replace('/^0/', '', $mobile); // Format: 880XXXXXXXXXX
     
@@ -43,14 +48,14 @@ function sendSMS($mobile, $message) {
     return true;
 }
 
-function ensureAdmissionFeeRecordedColumn($conn) {
+function ensureAdmissionFeeRecordedColumn(mysqli $conn): void {
     $check = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'fee_recorded'");
     if ($check && mysqli_num_rows($check) === 0) {
         mysqli_query($conn, "ALTER TABLE admission_applications ADD COLUMN fee_recorded TINYINT(1) DEFAULT 0 AFTER application_fee");
     }
 }
 
-function ensureAdmissionCredentialColumns($conn) {
+function ensureAdmissionCredentialColumns(mysqli $conn): void {
     $checkUsername = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'username'");
     if ($checkUsername && mysqli_num_rows($checkUsername) === 0) {
         mysqli_query($conn, "ALTER TABLE admission_applications ADD COLUMN username VARCHAR(100) NULL AFTER parent_phone");
@@ -64,12 +69,12 @@ function ensureAdmissionCredentialColumns($conn) {
 ensureAdmissionFeeRecordedColumn($conn);
 ensureAdmissionCredentialColumns($conn);
 
-function admissionColumnExists($conn, $column) {
+function admissionColumnExists(mysqli $conn, string $column): bool {
     $result = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE '$column'");
     return $result && mysqli_num_rows($result) > 0;
 }
 
-function getAdmissionColumnMap($conn) {
+function getAdmissionColumnMap(mysqli $conn): array {
     $hasFullName = admissionColumnExists($conn, 'full_name');
     $hasFirstName = admissionColumnExists($conn, 'first_name');
     $hasLastName = admissionColumnExists($conn, 'last_name');
@@ -94,7 +99,7 @@ function getAdmissionColumnMap($conn) {
 
 $admissionColumns = getAdmissionColumnMap($conn);
 
-function generateStudentID($conn) {
+function generateStudentID(mysqli $conn): string {
     $prefix = 'STU';
     $year = date('Y');
     $pattern = $prefix . $year . '%';
@@ -121,7 +126,7 @@ function generateStudentID($conn) {
     return $newId;
 }
 
-function createStudentUserFromAdmission($conn, $app) {
+function createStudentUserFromAdmission(mysqli $conn, array $app): bool {
     $username = trim($app['username'] ?? '');
     $password_hash = trim($app['password_hash'] ?? '');
     $email = mysqli_real_escape_string($conn, $app['email']);
@@ -755,10 +760,13 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
             
             <ul class="sidebar-menu">
                 <li><a href="dashboard.php"><i class="fas fa-home"></i>Dashboard</a></li>
+                  <li><a href="admission-management.php" class="active"><i class="fas fa-file-alt"></i>Admissions</a></li>
                 <li><a href="student-management.php"><i class="fas fa-users"></i>Student Management</a></li>
                 <li><a href="teacher-management.php"><i class="fas fa-chalkboard-user"></i>Teacher Management</a></li>
-                <li><a href="admission-management.php" class="active"><i class="fas fa-file-alt"></i>Admissions</a></li>
-                <li><a href="attendance.php"><i class="fas fa-clipboard-list"></i>Attendance</a></li>
+            
+                <li><a href="routine-management.php"><i class="fas fa-calendar-alt"></i>Routine Management</a></li>
+                
+                <li><a href="parent-discontinue-requests.php"><i class="fas fa-user-slash"></i>Discontinue Requests</a></li>
                 <li><a href="result-system.php"><i class="fas fa-chart-bar"></i>Result System</a></li>
                 <li><a href="fees-management.php"><i class="fas fa-money-bill"></i>Fees Management</a></li>
                 <li><a href="logout.php"><i class="fas fa-sign-out-alt"></i>Logout</a></li>
@@ -1036,8 +1044,18 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                                             <input type="text" class="form-control" name="program" value="<?php echo htmlspecialchars($app['program']); ?>" required>
                                                         </div>
                                                         <div class="col-md-6">
-                                                            <label class="form-label">Group</label>
-                                                            <input type="text" class="form-control" name="group" value="<?php echo htmlspecialchars($app['group']); ?>" required>
+                                                            <label class="form-label">Group/Stream</label>
+                                                            <select class="form-control" name="group" required>
+                                                                <option value="">-- Select Group --</option>
+                                                                <?php 
+                                                                $groups_query = mysqli_query($conn, "SELECT id, group_name FROM `groups` ORDER BY group_name");
+                                                                while($g = mysqli_fetch_assoc($groups_query)): 
+                                                                ?>
+                                                                <option value="<?php echo htmlspecialchars($g['group_name']); ?>" <?php echo ($app['group'] === $g['group_name']) ? 'selected' : ''; ?>>
+                                                                    <?php echo htmlspecialchars($g['group_name']); ?>
+                                                                </option>
+                                                                <?php endwhile; ?>
+                                                            </select>
                                                         </div>
                                                     </div>
                                                     <div class="row mb-3">
