@@ -1,5 +1,5 @@
 <?php
-include 'db.php';
+require_once 'includes/db.php';
 
 $username = "admin12";
 $email = "admin12@gmail.com";

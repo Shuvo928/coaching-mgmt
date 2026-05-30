@@ -167,7 +167,7 @@ if($test_result) {
         echo "<p><strong>Sample subjects found:</strong></p>";
         echo "<ul>";
         $i = 0;
-        while($row = mysqli_fetch_assoc($test_result) && $i < 10) {
+        while (($row = mysqli_fetch_assoc($test_result)) && $i < 10) {
             echo "<li>" . $row['subject_name'] . " - " . $row['class_name'] . "</li>";
             $i++;
         }

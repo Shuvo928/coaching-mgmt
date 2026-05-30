@@ -20,7 +20,7 @@ if (isset($_GET['delete_routine']) && is_numeric($_GET['delete_routine'])) {
     $messageType = 'success';
 }
 
-function parseRoutineTimeSeconds($time) {
+function parseRoutineTimeSeconds(string $time): int|false {
     $time = trim($time);
     if ($time === '') {
         return false;
@@ -34,7 +34,7 @@ function parseRoutineTimeSeconds($time) {
     return intval(date('H', $timestamp)) * 3600 + intval(date('i', $timestamp)) * 60 + intval(date('s', $timestamp));
 }
 
-function normalizeRoutineInterval($start, $end) {
+function normalizeRoutineInterval(string $start, string $end): array|false {
     $s = parseRoutineTimeSeconds($start);
     $e = parseRoutineTimeSeconds($end);
     if ($s === false || $e === false) {
@@ -46,11 +46,11 @@ function normalizeRoutineInterval($start, $end) {
     return [$s, $e];
 }
 
-function intervalsOverlap($aStart, $aEnd, $bStart, $bEnd) {
+function intervalsOverlap(int $aStart, int $aEnd, int $bStart, int $bEnd): bool {
     return !($aEnd < $bStart || $aStart > $bEnd);
 }
 
-function findRoutineConflicts($conn, $day, $start_time, $end_time, $teacher_id, $room, $group_id, $excludeId = null) {
+function findRoutineConflicts(mysqli $conn, string $day, string $start_time, string $end_time, int|string $teacher_id, string $room, int|string $group_id, int|string|null $excludeId = null): array {
     $day = mysqli_real_escape_string($conn, trim($day));
     $teacher_id = intval($teacher_id);
     $group_id = intval($group_id);
@@ -110,7 +110,7 @@ function findRoutineConflicts($conn, $day, $start_time, $end_time, $teacher_id, 
     return array_keys($conflicts);
 }
 
-function getRoutineConflictLabels($conn, $routine) {
+function getRoutineConflictLabels(mysqli $conn, array $routine): array {
     return findRoutineConflicts(
         $conn,
         $routine['day'],

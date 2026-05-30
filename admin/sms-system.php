@@ -18,7 +18,6 @@ $templates = [
     'fee_reminder' => 'Dear [NAME], your fee of [AMOUNT] Tk is due on [DATE]. Please pay soon to avoid late fee. - Coaching Center',
     'exam_schedule' => 'Dear [NAME], your [EXAM_NAME] exam will be held on [DATE] at [TIME]. Subject: [SUBJECT]. - Coaching Center',
     'result_published' => 'Dear [NAME], your [EXAM_NAME] results have been published. Your GPA: [GPA]. Check details online. - Coaching Center',
-    'attendance_alert' => 'Dear Parent, your child [STUDENT_NAME] was [STATUS] today. Please ensure regular attendance. - Coaching Center',
     'holiday_notice' => 'Dear Students/Parents, the center will remain closed on [DATE] due to [REASON]. - Coaching Center',
     'emergency' => 'URGENT: [MESSAGE]. Please take necessary action. - Coaching Center'
 ];
@@ -428,10 +427,6 @@ $students = mysqli_query($conn, "SELECT s.*, c.class_name
                     <i class="fas fa-school"></i>
                     <span>Class & Subjects</span>
                 </a>
-                <a href="attendance.php" class="menu-item">
-                    <i class="fas fa-calendar-check"></i>
-                    <span>Attendance</span>
-                </a>
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>
@@ -440,7 +435,18 @@ $students = mysqli_query($conn, "SELECT s.*, c.class_name
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
                 </a>
+                <a href="home-video.php" class="menu-item">
+                    <i class="fas fa-video"></i>
+                    <span>Homepage Video</span>
+                </a>
                 <a href="sms-system.php" class="menu-item active">
+                    <i class="fas fa-sms"></i>
+                    <span>SMS System</span>
+                </a>
+                <a href="logout.php" class="menu-item">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </a>
                     <i class="fas fa-sms"></i>
                     <span>SMS System</span>
                 </a>
@@ -641,13 +647,6 @@ $students = mysqli_query($conn, "SELECT s.*, c.class_name
                                     <div class="recipient-info">
                                         <div class="recipient-name">Students with Pending Fees</div>
                                         <div class="recipient-phone">Send fee reminders</div>
-                                    </div>
-                                </div>
-                                <div class="recipient-item">
-                                    <input class="form-check-input recipient-checkbox" type="checkbox" value="exam_soon" id="exam_soon">
-                                    <div class="recipient-info">
-                                        <div class="recipient-name">Students with Upcoming Exams</div>
-                                        <div class="recipient-phone">Send exam reminders</div>
                                     </div>
                                 </div>
                             </div>

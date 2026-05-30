@@ -2,7 +2,7 @@
 session_start();
 require_once 'includes/db.php';
 
-// Handle form submission
+// This runs ONLY when user submits the form.
 if(isset($_POST['submit_admission'])) {
     $full_name = mysqli_real_escape_string($conn, $_POST['full_name']);
     $gender = mysqli_real_escape_string($conn, $_POST['gender']);
@@ -26,7 +26,7 @@ if(isset($_POST['submit_admission'])) {
     ];
     $class_id = $program_class_map[$program] ?? 1;
     $group = mysqli_real_escape_string($conn, $_POST['group']);
-
+// Email Duplicate Check
     $checkEmail = mysqli_query($conn, "SELECT id FROM admission_applications WHERE email = '$email' LIMIT 1");
     if($checkEmail && mysqli_num_rows($checkEmail) > 0) {
         $error = 'This email is already registered. Please use a different email.';
@@ -44,7 +44,7 @@ if(isset($_POST['submit_admission'])) {
         $parent_phone = mysqli_real_escape_string($conn, $_POST['parent_phone']);
         $sender_number = mysqli_real_escape_string($conn, $_POST['sender_number']);
         
-        // Get monthly fee based on program
+        // Monthly Fee Setup
         $monthly_fee = 0;
         if($program == 'Class 9') {
             $monthly_fee = 825;
@@ -116,7 +116,7 @@ $fees = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Online Admission Portal - CoachingPro</title>
+    <title>Online Admission Portal - Coaching</title>
     
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -595,7 +595,7 @@ $fees = [
     <nav class="navbar navbar-expand-lg">
         <div class="container">
             <a class="navbar-brand" href="index.php">
-                Coaching<span>Pro</span>
+                Coaching<span></span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>

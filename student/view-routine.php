@@ -1,7 +1,7 @@
 <?php
 session_start();
-require_once '../includes/db.php';
-require_once '../includes/auth.php';
+require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/auth.php';
 
 checkAuth();
 checkRole(['student']);
@@ -11,6 +11,80 @@ $student = null;
 $class_routine = [];
 $expected_class_group = '';
 $error_msg = '';
+
+function normalizeText(string $value): string {
+    return mb_strtolower(trim(preg_replace('/\s+/', ' ', $value)));
+}
+
+function formatRoutineKey(array $routine): string {
+    $day = normalizeText((string)($routine['day'] ?? ''));
+    $start = trim((string)($routine['start_time'] ?? ''));
+    $end = trim((string)($routine['end_time'] ?? ''));
+
+    if ($day === '' || $start === '' || $end === '') {
+        return '';
+    }
+
+    $normalizedStart = date('H:i', strtotime($start));
+    $normalizedEnd = date('H:i', strtotime($end));
+    if ($normalizedStart === '00:00' && $start !== '00:00') {
+        return '';
+    }
+    if ($normalizedEnd === '00:00' && $end !== '00:00') {
+        return '';
+    }
+
+    return $day . '|' . $normalizedStart . '|' . $normalizedEnd;
+}
+
+function getRoutinePriorityScore(array $routine): int {
+    $score = 0;
+    $teacher = trim((string)($routine['teacher'] ?? ''));
+    $subject = trim((string)($routine['subject'] ?? ''));
+    $room = trim((string)($routine['room'] ?? ''));
+
+    if ($teacher !== '') {
+        $score += 4;
+    }
+    if ($subject !== '') {
+        $score += 2;
+    }
+    if ($room !== '') {
+        $score += 1;
+    }
+
+    return $score;
+}
+
+function dedupeStudentRoutine(array $routineRows): array {
+    $deduped = [];
+    $keyIndex = [];
+
+    foreach ($routineRows as $routine) {
+        $key = formatRoutineKey($routine);
+        if ($key === '') {
+            $deduped[] = $routine;
+            continue;
+        }
+
+        if (!isset($keyIndex[$key])) {
+            $keyIndex[$key] = count($deduped);
+            $deduped[] = $routine;
+            continue;
+        }
+
+        $existingIndex = $keyIndex[$key];
+        $existing = $deduped[$existingIndex];
+        $existingScore = getRoutinePriorityScore($existing);
+        $newScore = getRoutinePriorityScore($routine);
+
+        if ($newScore > $existingScore) {
+            $deduped[$existingIndex] = $routine;
+        }
+    }
+
+    return $deduped;
+}
 
 if (!empty($user['id'])) {
     // Fetch student details
@@ -62,6 +136,7 @@ if (!empty($user['id'])) {
                 while ($routine = mysqli_fetch_assoc($routine_result)) {
                     $class_routine[] = $routine;
                 }
+                $class_routine = dedupeStudentRoutine($class_routine);
             }
         }
     } else {

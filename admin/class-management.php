@@ -391,10 +391,6 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                     <i class="fas fa-calendar-week"></i>
                     <span>Class Routine</span>
                 </a>
-                <a href="attendance.php" class="menu-item">
-                    <i class="fas fa-calendar-check"></i>
-                    <span>Attendance</span>
-                </a>
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>
@@ -403,7 +399,18 @@ $subjects = mysqli_query($conn, "SELECT s.*, c.class_name
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
                 </a>
+                <a href="home-video.php" class="menu-item">
+                    <i class="fas fa-video"></i>
+                    <span>Homepage Video</span>
+                </a>
                 <a href="sms-system.php" class="menu-item">
+                    <i class="fas fa-sms"></i>
+                    <span>SMS System</span>
+                </a>
+                <a href="logout.php" class="menu-item">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </a>
                     <i class="fas fa-sms"></i>
                     <span>SMS System</span>
                 </a>

@@ -17,6 +17,12 @@ define('SMTP_SECURE', 'tls');
 define('OTP_EXPIRY_SECONDS', 300);
 define('OTP_RESEND_COOLDOWN', 30);
 
+/**
+ * Read SMTP response lines from a socket until a terminating space is found.
+ *
+ * @param resource $socket Stream socket resource returned by stream_socket_client
+ * @return string
+ */
 function getSmtpResponse($socket) {
     $response = '';
     while ($str = fgets($socket, 515)) {
@@ -28,6 +34,14 @@ function getSmtpResponse($socket) {
     return $response;
 }
 
+/**
+ * Send an email using a direct SMTP socket connection.
+ *
+ * @param string $to      Recipient email address
+ * @param string $subject Email subject
+ * @param string $body    Email body (plain text)
+ * @return true|string    Returns true on success or an error message string on failure
+ */
 function smtpSendMail($to, $subject, $body) {
     $smtpHost = SMTP_HOST;
     $smtpPort = SMTP_PORT;
@@ -37,7 +51,7 @@ function smtpSendMail($to, $subject, $body) {
     $smtpFromName = SMTP_FROM_NAME;
     $smtpSecure = SMTP_SECURE;
     $newline = "\r\n";
-
+// Establish connection to SMTP server
     $socket = stream_socket_client("tcp://{$smtpHost}:{$smtpPort}", $errno, $errstr, 30);
     if (!$socket) {
         return "SMTP connect error: {$errstr} ({$errno})";
@@ -63,7 +77,7 @@ function smtpSendMail($to, $subject, $body) {
         fputs($socket, "EHLO localhost{$newline}");
         $response = getSmtpResponse($socket);
     }
-
+// Login to Gmail SMTP
     fputs($socket, "AUTH LOGIN{$newline}");
     $response = getSmtpResponse($socket);
     if (strpos($response, '334') !== 0) {
@@ -105,7 +119,7 @@ function smtpSendMail($to, $subject, $body) {
         fclose($socket);
         return 'DATA command failed: ' . trim($response);
     }
-
+// send email headers and body in admin email
     $headers = "From: {$smtpFromName} <{$smtpFromEmail}>{$newline}";
     $headers .= "To: {$to}{$newline}";
     $headers .= "Subject: {$subject}{$newline}";
@@ -126,7 +140,7 @@ function smtpSendMail($to, $subject, $body) {
 
     return true;
 }
-
+// ডিফাইন করা কনস্ট্যান্ট এবং ফাংশন সহ পাসওয়ার্ড রিসেট প্রক্রিয়া শুরু হচ্ছে
 if(isset($_POST['send_otp'])) {
     $email = trim(mysqli_real_escape_string($conn, $_POST['email']));
 
@@ -243,8 +257,14 @@ if ($step === 'otp' && isset($_SESSION['forgot_otp_last_send'])) {
     $otpResendCooldown = max(0, OTP_RESEND_COOLDOWN - (time() - $_SESSION['forgot_otp_last_send']));
 }
 
+/**
+ * Sanitize output for safe HTML rendering.
+ *
+ * @param string $value
+ * @return string
+ */
 function sanitize($value) {
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 }
 ?>
 <!DOCTYPE html>

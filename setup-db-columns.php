@@ -25,6 +25,46 @@ if(mysqli_num_rows($result) == 0) {
     echo "<p style='color: green;'><strong>✅ The 'mother_name' column already exists in the students table!</strong></p>";
 }
 
+$check_query = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = 'coaching_db' 
+                AND TABLE_NAME = 'students' 
+                AND COLUMN_NAME = 'program'";
+
+$result = mysqli_query($conn, $check_query);
+
+if(mysqli_num_rows($result) == 0) {
+    $add_column = "ALTER TABLE students ADD COLUMN program VARCHAR(150) NULL AFTER group_id";
+    
+    if(mysqli_query($conn, $add_column)) {
+        echo "<p style='color: green;'><strong>✅ Successfully added 'program' column to students table!</strong></p>";
+    } else {
+        echo "<p style='color: red;'><strong>❌ Error adding column: " . mysqli_error($conn) . "</strong></p>";
+    }
+} else {
+    echo "<p style='color: green;'><strong>✅ The 'program' column already exists in the students table!</strong></p>";
+}
+
+// Check if group_name column exists in students table
+$check_query = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = 'coaching_db' 
+                AND TABLE_NAME = 'students' 
+                AND COLUMN_NAME = 'group_name'";
+
+$result = mysqli_query($conn, $check_query);
+
+if(mysqli_num_rows($result) == 0) {
+    // Column doesn't exist, add it
+    $add_column = "ALTER TABLE students ADD COLUMN group_name VARCHAR(100) NULL AFTER group_id";
+    
+    if(mysqli_query($conn, $add_column)) {
+        echo "<p style='color: green;'><strong>✅ Successfully added 'group_name' column to students table!</strong></p>";
+    } else {
+        echo "<p style='color: red;'><strong>❌ Error adding 'group_name' column: " . mysqli_error($conn) . "</strong></p>";
+    }
+} else {
+    echo "<p style='color: green;'><strong>✅ The 'group_name' column already exists in the students table!</strong></p>";
+}
+
 echo "<p><strong>Database setup is complete!</strong></p>";
 echo "<p><a href='admin/student-management.php' style='color: blue; text-decoration: none;'>← Back to Student Management</a></p>";
 echo "</div>";

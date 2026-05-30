@@ -137,7 +137,7 @@ function createStudentUserFromAdmission(mysqli $conn, array $app): bool {
     $program = mysqli_real_escape_string($conn, $app['program'] ?? '');
     $group_name = mysqli_real_escape_string($conn, $app['group'] ?? '');
 
-    // Get class_id and group_id
+    // Get class_id and group_id for legacy internal references
     $class_id = NULL;
     $group_id = NULL;
     if(!empty($program)) {
@@ -151,6 +151,11 @@ function createStudentUserFromAdmission(mysqli $conn, array $app): bool {
         if($group_query && mysqli_num_rows($group_query) > 0) {
             $group_id = mysqli_fetch_assoc($group_query)['id'];
         }
+    }
+
+    $program_label = trim($program);
+    if(!empty($group_name)) {
+        $program_label .= ($program_label !== '' ? ' - ' : '') . $group_name;
     }
 
     // Generate a username if none exists
@@ -214,9 +219,16 @@ function createStudentUserFromAdmission(mysqli $conn, array $app): bool {
     }
 
     $student_unique_id = generateStudentID($conn);
-
-    $insert_student = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, photo, class_id, group_id, admission_date, status) 
-                      VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', '', '', '$email', '$mobile', NULL, '$gender', '$address', NULL, " . ($class_id ? $class_id : 'NULL') . ", " . ($group_id ? $group_id : 'NULL') . ", NOW(), 1)";
+    $hasProgramColumn = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'program'")) > 0;
+    $studentColumns = 'user_id, student_id, first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, photo, class_id, group_id, group_name';
+    $studentValues = "$user_id, '$student_unique_id', '$first_name', '$last_name', '', '', '$email', '$mobile', NULL, '$gender', '$address', NULL, " . ($class_id ? $class_id : 'NULL') . ", " . ($group_id ? $group_id : 'NULL') . ", '$group_name'";
+    if ($hasProgramColumn) {
+        $studentColumns .= ', program';
+        $studentValues .= ", '$program_label'";
+    }
+    $studentColumns .= ', admission_date, status';
+    $studentValues .= ', NOW(), 1';
+    $insert_student = "INSERT INTO students ($studentColumns) VALUES ($studentValues)";
 
     if(!mysqli_query($conn, $insert_student)) {
         if($inserted_new_user) {
@@ -235,7 +247,7 @@ if(isset($_POST['approve'])) {
     // Get application details
     $nameField = $admissionColumns['hasFullName'] ? 'full_name' : "CONCAT(first_name, ' ', last_name)";
     $phoneField = $admissionColumns['hasMobile'] ? 'mobile' : ($admissionColumns['hasPhone'] ? 'phone' : "''");
-    $app_query = "SELECT $nameField AS full_name, email, $phoneField AS mobile, parent_name, parent_email, parent_phone, username, password_hash, gender, address FROM admission_applications WHERE id = $id";
+    $app_query = "SELECT $nameField AS full_name, email, $phoneField AS mobile, parent_name, parent_email, parent_phone, username, password_hash, gender, address, program, `group` FROM admission_applications WHERE id = $id";
     $app_result = mysqli_query($conn, $app_query);
     $app = mysqli_fetch_assoc($app_result);
 
@@ -366,20 +378,6 @@ if(isset($_POST['edit_admission'])) {
     $setClauses[] = "transaction_id = '$transaction_id'";
     $setClauses[] = "sender_number = '$sender_number'";
 
-    $username = trim($_POST['username'] ?? '');
-    $password = trim($_POST['password'] ?? '');
-
-    if($username !== '') {
-        $username = mysqli_real_escape_string($conn, $username);
-        $setClauses[] = "username = '$username'";
-    }
-
-    if($password !== '') {
-        $password_hash = password_hash($password, PASSWORD_DEFAULT);
-        $password_hash = mysqli_real_escape_string($conn, $password_hash);
-        $setClauses[] = "password_hash = '$password_hash'";
-    }
-
     $update_query = "UPDATE admission_applications SET " . implode(", ", $setClauses) . " WHERE id = $id";
 
     if(mysqli_query($conn, $update_query)) {
@@ -419,7 +417,7 @@ $phoneSelect = $admissionColumns['hasMobile']
     ? 'mobile AS phone, mobile AS mobile'
     : ($admissionColumns['hasPhone'] ? 'phone AS phone, phone AS mobile' : "'' AS phone, '' AS mobile");
 
-// Build query
+// the key line referencing the admission form table 
 $where = "1=1";
 if($filter_status != 'all') {
     $where .= " AND status = '$filter_status'";
@@ -501,6 +499,9 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
             min-height: 100vh;
             color: white;
             position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 1000;
             transition: all 0.3s;
         }
 
@@ -765,10 +766,9 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                 <li><a href="teacher-management.php"><i class="fas fa-chalkboard-user"></i>Teacher Management</a></li>
             
                 <li><a href="routine-management.php"><i class="fas fa-calendar-alt"></i>Routine Management</a></li>
-                
-                <li><a href="parent-discontinue-requests.php"><i class="fas fa-user-slash"></i>Discontinue Requests</a></li>
                 <li><a href="result-system.php"><i class="fas fa-chart-bar"></i>Result System</a></li>
                 <li><a href="fees-management.php"><i class="fas fa-money-bill"></i>Fees Management</a></li>
+                <li><a href="home-video.php"><i class="fas fa-video"></i>Homepage Video</a></li>
                 <li><a href="logout.php"><i class="fas fa-sign-out-alt"></i>Logout</a></li>
             </ul>
         </div>
@@ -1026,16 +1026,6 @@ $total = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as total FROM a
                                                     <div class="mb-3">
                                                         <label class="form-label">Parent Phone</label>
                                                         <input type="text" class="form-control" name="parent_phone" value="<?php echo htmlspecialchars($app['parent_phone']); ?>" required>
-                                                    </div>
-                                                    <div class="row mb-3">
-                                                        <div class="col-md-6">
-                                                            <label class="form-label">Username</label>
-                                                            <input type="text" class="form-control" name="username" value="<?php echo htmlspecialchars($app['username'] ?? ''); ?>">
-                                                        </div>
-                                                        <div class="col-md-6">
-                                                            <label class="form-label">Password</label>
-                                                            <input type="password" class="form-control" name="password" placeholder="Leave blank to keep current password">
-                                                        </div>
                                                     </div>
                                                     <hr>
                                                     <div class="row mb-3">

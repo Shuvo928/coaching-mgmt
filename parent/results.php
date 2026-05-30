@@ -66,9 +66,15 @@ $resultsCols .= ", CASE
     ELSE 'Test'
 END AS test_name";
 
+// Add teacher name from the assigned teacher for the student's class and subject
+$resultsCols .= ", CONCAT(TRIM(t.first_name), ' ', TRIM(t.last_name)) AS teacher_name";
+
 $results_query = "SELECT $resultsCols
                   FROM results r
                   LEFT JOIN subjects s ON r.subject_id = s.id
+                  LEFT JOIN students st ON r.student_id = st.id
+                  LEFT JOIN teacher_subjects ts ON ts.subject_id = r.subject_id AND ts.class_id = st.class_id
+                  LEFT JOIN teachers t ON ts.teacher_id = t.id AND t.status = 1
                   WHERE r.student_id IN ($student_ids_list)
                   ORDER BY r.created_at DESC";
 
@@ -110,7 +116,7 @@ $stats = mysqli_fetch_assoc($stats_result);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Results & Grades - Parent Portal</title>
+    <title>Results(Monthly and Weekly Assessment)  - Parent Portal</title>
     
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -407,7 +413,7 @@ $stats = mysqli_fetch_assoc($stats_result);
         <!-- Sidebar -->
         <div class="sidebar">
             <div class="sidebar-header">
-                <h3>CoachingPro</h3>
+                <h3>Coaching</h3>
                 <small>Parent Portal</small>
             </div>
             
@@ -418,28 +424,17 @@ $stats = mysqli_fetch_assoc($stats_result);
                         Dashboard
                     </a>
                 </li>
-                <li>
-                    <a href="attendance.php">
-                        <i class="fas fa-calendar-check"></i>
-                        Attendance
-                    </a>
-                </li>
+                
                 <li>
                     <a href="results.php" class="active">
                         <i class="fas fa-chart-bar"></i>
-                        Results & Grades
+                        Check Results 
                     </a>
                 </li>
                 <li>
                     <a href="fees.php">
                         <i class="fas fa-money-bill"></i>
                         Fees & Payments
-                    </a>
-                </li>
-                <li>
-                    <a href="../parent-discontinue.php" onclick="return confirm('Are you sure you want to remove this account permanently?');">
-                        <i class="fas fa-sign-out-alt"></i>
-                         discontinues enrollment 
                     </a>
                 </li>
                 <li>
@@ -455,8 +450,8 @@ $stats = mysqli_fetch_assoc($stats_result);
         <div class="main-content">
             <!-- Top Bar -->
             <div class="top-bar">
-                <h2><i class="fas fa-chart-bar me-3" style="color: #667eea;"></i>Results & Grades</h2>
-                <p>View <?php echo htmlspecialchars($student_name); ?>'s exam results and grades</p>
+                <h2><i class="fas fa-chart-bar me-3" style="color: #667eea;"></i>Results of Monthly and Weekly Assessment</h2>
+                <p>View <?php echo htmlspecialchars($student_name); ?>'s Monthly and Weekly test results </p>
             </div>
 
             <!-- Results Table -->
@@ -471,8 +466,9 @@ $stats = mysqli_fetch_assoc($stats_result);
                         <thead>
                             <tr>
                                 <th>Subject</th>
+                                <th>Teacher</th>
                                 <th>Exam Type</th>
-                                <th>Date</th>
+                                <th>Exam Date</th>
                                 <th>Marks Obtained</th>
                             </tr>
                         </thead>
@@ -482,6 +478,7 @@ $stats = mysqli_fetch_assoc($stats_result);
                             ?>
                             <tr>
                                 <td><span class="subject-name"><?php echo htmlspecialchars($row['subject_name'] ?? 'N/A'); ?></span></td>
+                                <td><?php echo htmlspecialchars(trim($row['teacher_name'] ?? '') !== '' ? $row['teacher_name'] : 'Not assigned yet'); ?></td>
                                 <td><span class="exam-type"><?php echo htmlspecialchars($row['test_name'] ?? 'Test'); ?></span></td>
                                 <td><?php echo isset($row['exam_date']) && $row['exam_date'] ? date('d M, Y', strtotime($row['exam_date'])) : 'N/A'; ?></td>
                                 <td class="marks-badge">

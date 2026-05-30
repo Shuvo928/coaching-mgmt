@@ -17,6 +17,12 @@ define('SMTP_SECURE', 'tls');
 define('OTP_EXPIRY_SECONDS', 300);
 define('OTP_RESEND_COOLDOWN', 30);
 
+/**
+ * Read SMTP response lines from a socket until a terminating space is found.
+ *
+ * @param resource $socket Stream socket resource returned by stream_socket_client
+ * @return string
+ */
 function getSmtpResponse($socket) {
     $response = '';
     while ($str = fgets($socket, 515)) {
@@ -28,6 +34,14 @@ function getSmtpResponse($socket) {
     return $response;
 }
 
+/**
+ * Send an email using a direct SMTP socket connection.
+ *
+ * @param string $to      Recipient email address
+ * @param string $subject Email subject
+ * @param string $body    Email body (plain text)
+ * @return true|string    True on success or error message on failure
+ */
 function smtpSendMail($to, $subject, $body) {
     $smtpHost = SMTP_HOST;
     $smtpPort = SMTP_PORT;
@@ -128,6 +142,13 @@ function smtpSendMail($to, $subject, $body) {
 }
 
 // Function to send SMS
+/**
+ * Send an SMS using the configured SMS provider.
+ *
+ * @param string $mobile Recipient mobile number
+ * @param string $message SMS message text
+ * @return bool
+ */
 function sendSMS($mobile, $message) {
     $api_key = "K6uCeGByYLJRtIIZRzQ";
     $mobile = "88" . preg_replace('/^0/', '', $mobile); // Format: 880XXXXXXXXXX
@@ -307,8 +328,14 @@ if ($step === 'otp' && isset($_SESSION['forgot_otp_last_send'])) {
     $otpResendCooldown = max(0, OTP_RESEND_COOLDOWN - (time() - $_SESSION['forgot_otp_last_send']));
 }
 
+/**
+ * Sanitize output for safe HTML rendering.
+ *
+ * @param string $value
+ * @return string
+ */
 function sanitize($value) {
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 }
 ?>
 <!DOCTYPE html>

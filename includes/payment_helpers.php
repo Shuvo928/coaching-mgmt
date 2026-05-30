@@ -5,7 +5,7 @@
  * Handles payment processing, history tracking, and receipts
  */
 
-function createPaymentHistoryTable($conn) {
+function createPaymentHistoryTable(mysqli $conn): bool {
     $query = "CREATE TABLE IF NOT EXISTS payment_history (
         id INT AUTO_INCREMENT PRIMARY KEY,
         student_id INT NOT NULL,
@@ -29,7 +29,7 @@ function createPaymentHistoryTable($conn) {
     return mysqli_query($conn, $query);
 }
 
-function ensureSmsLogsTableExists($conn) {
+function ensureSmsLogsTableExists(mysqli $conn): bool {
     $query = "CREATE TABLE IF NOT EXISTS sms_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         mobile_number VARCHAR(50),
@@ -43,8 +43,8 @@ function ensureSmsLogsTableExists($conn) {
     return mysqli_query($conn, $query);
 }
 
-function recordPaymentHistory($conn, $student_id, $class_id, $fee_collection_id, $transaction_id, 
-                             $receipt_no, $payment_method, $amount_paid, $fee_type, $month_name) {
+function recordPaymentHistory(mysqli $conn, int $student_id, int $class_id, int $fee_collection_id, string $transaction_id, 
+                             string $receipt_no, string $payment_method, float $amount_paid, string $fee_type, string $month_name): bool {
     $student_id = (int)$student_id;
     $class_id = (int)$class_id;
     $fee_collection_id = (int)$fee_collection_id;
@@ -65,7 +65,7 @@ function recordPaymentHistory($conn, $student_id, $class_id, $fee_collection_id,
     return mysqli_query($conn, $query);
 }
 
-function getPaymentHistory($conn, $student_ids = []) {
+function getPaymentHistory(mysqli $conn, array $student_ids = []): array {
     if (empty($student_ids)) {
         return [];
     }
@@ -95,7 +95,7 @@ function getPaymentHistory($conn, $student_ids = []) {
     return $payments;
 }
 
-function getAdmissionFeeHistory($conn, $student_ids = []) {
+function getAdmissionFeeHistory(mysqli $conn, array $student_ids = []): array {
     if (empty($student_ids)) {
         return [];
     }
@@ -134,7 +134,7 @@ function getAdmissionFeeHistory($conn, $student_ids = []) {
     return $payments;
 }
 
-function getPaymentReceiptDetails($conn, $receipt_no, $student_id = null) {
+function getPaymentReceiptDetails(mysqli $conn, string $receipt_no, ?int $student_id = null): ?array {
     $receipt_no = mysqli_real_escape_string($conn, $receipt_no);
     
     // Build query with optional student_id filter for data isolation
@@ -168,7 +168,7 @@ function getPaymentReceiptDetails($conn, $receipt_no, $student_id = null) {
     return getAdmissionFeeReceiptDetails($conn, $receipt_no, $student_id);
 }
 
-function getAdmissionFeeReceiptDetails($conn, $receipt_no, $student_id = null) {
+function getAdmissionFeeReceiptDetails(mysqli $conn, string $receipt_no, ?int $student_id = null): ?array {
     $receipt_no = mysqli_real_escape_string($conn, $receipt_no);
     
     // Build query with optional student_id filter for data isolation
@@ -203,7 +203,7 @@ function getAdmissionFeeReceiptDetails($conn, $receipt_no, $student_id = null) {
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
 
-function getStudentPaymentsSummary($conn, $student_id) {
+function getStudentPaymentsSummary(mysqli $conn, int $student_id): ?array {
     $student_id = (int)$student_id;
     $query = "SELECT 
                 COUNT(*) AS total_payments,
@@ -217,11 +217,11 @@ function getStudentPaymentsSummary($conn, $student_id) {
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
 
-function generateReceiptNumber() {
+function generateReceiptNumber(): string {
     return 'RCP' . date('Ymd') . str_pad(rand(0, 99999), 5, '0', STR_PAD_LEFT);
 }
 
-function getStudentClassInfo($conn, $student_id) {
+function getStudentClassInfo(mysqli $conn, int $student_id): ?array {
     $student_id = (int)$student_id;
     if ($student_id <= 0) {
         return null;
@@ -237,7 +237,7 @@ function getStudentClassInfo($conn, $student_id) {
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
 
-function getClassWiseFeesByStudent($conn, $student_id) {
+function getClassWiseFeesByStudent(mysqli $conn, int $student_id): ?array {
     $student_id = (int)$student_id;
     if ($student_id <= 0) {
         return null;
@@ -258,7 +258,52 @@ function getClassWiseFeesByStudent($conn, $student_id) {
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
 
-function validatePaymentAmount($conn, $student_id, $amount) {
+function getSslCommerzEndpoint(): string {
+    return SSLCOMMERZ_SANDBOX
+        ? 'https://sandbox.sslcommerz.com/gwprocess/v4/api.php'
+        : 'https://securepay.sslcommerz.com/gwprocess/v4/api.php';
+}
+
+function sslcommerzInitiatePayment(array $post_data): ?array {
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, getSslCommerzEndpoint());
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    $result = curl_exec($ch);
+    curl_close($ch);
+
+    return json_decode($result, true);
+}
+
+function sslcommerzValidateTransaction(string $tran_id): ?array {
+    $endpoint = SSLCOMMERZ_SANDBOX
+        ? 'https://sandbox.sslcommerz.com/validator/api/merchantTransIDvalidationAPI.php'
+        : 'https://securepay.sslcommerz.com/validator/api/merchantTransIDvalidationAPI.php';
+
+    $query = http_build_query([
+        'tran_id' => $tran_id,
+        'store_id' => SSLCOMMERZ_STORE_ID,
+        'store_passwd' => SSLCOMMERZ_STORE_PASSWD,
+        'format' => 'json'
+    ]);
+
+    $url = $endpoint . '?' . $query;
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    return json_decode($response, true);
+}
+
+function validatePaymentAmount(mysqli $conn, int $student_id, float $amount): bool {
     $student_id = (int)$student_id;
     $amount = (float)$amount;
 
@@ -276,7 +321,7 @@ function validatePaymentAmount($conn, $student_id, $amount) {
     return ($amount > 0 && $amount <= $max_allowed);
 }
 
-function getOutstandingBalance($conn, $student_id) {
+function getOutstandingBalance(mysqli $conn, int $student_id): float {
     $student_id = (int)$student_id;
     $query = "SELECT 
                 SUM(fc.expected_amount - fc.paid_amount) AS balance
@@ -290,7 +335,7 @@ function getOutstandingBalance($conn, $student_id) {
 }
 
 // Add due_date column to fee_collections if it doesn't exist
-function ensureFeeCollectionsDueDateColumn($conn) {
+function ensureFeeCollectionsDueDateColumn(mysqli $conn): bool {
     $check_column = mysqli_query($conn, "SHOW COLUMNS FROM fee_collections LIKE 'due_date'");
     
     if (!$check_column || mysqli_num_rows($check_column) == 0) {
@@ -300,8 +345,19 @@ function ensureFeeCollectionsDueDateColumn($conn) {
     return true;
 }
 
+// Add receipt_no column to fee_collections if it doesn't exist
+function ensureFeeCollectionsReceiptColumn(mysqli $conn): bool {
+    $check_column = mysqli_query($conn, "SHOW COLUMNS FROM fee_collections LIKE 'receipt_no'");
+    
+    if (!$check_column || mysqli_num_rows($check_column) == 0) {
+        $add_column = "ALTER TABLE fee_collections ADD COLUMN receipt_no VARCHAR(50) DEFAULT NULL AFTER transaction_id";
+        return mysqli_query($conn, $add_column);
+    }
+    return true;
+}
+
 // Auto-generate monthly fees for the next 6 months when student is admitted
-function autoGenerateMonthlyFees($conn, $student_id, $class_id, $monthly_fee, $start_month_offset = 1) {
+function autoGenerateMonthlyFees(mysqli $conn, int $student_id, int $class_id, float $monthly_fee, int $start_month_offset = 1): bool {
     $student_id = (int)$student_id;
     $class_id = (int)$class_id;
     $monthly_fee = (float)$monthly_fee;
@@ -338,7 +394,7 @@ function autoGenerateMonthlyFees($conn, $student_id, $class_id, $monthly_fee, $s
 }
 
 // Get student fees with due date information and days remaining
-function getStudentFeesWithDueInfo($conn, $student_id) {
+function getStudentFeesWithDueInfo(mysqli $conn, int $student_id): array {
     $student_id = (int)$student_id;
     
     if ($student_id <= 0) {
@@ -354,6 +410,8 @@ function getStudentFeesWithDueInfo($conn, $student_id) {
                     fc.payment_status,
                     fc.due_date,
                     fc.payment_date,
+                    fc.payment_method,
+                    fc.receipt_no,
                     fc.created_at,
                     DATEDIFF(fc.due_date, CURDATE()) as days_remaining,
                     CASE 
@@ -378,7 +436,7 @@ function getStudentFeesWithDueInfo($conn, $student_id) {
 }
 
 // Get payment history for a specific student (not multiple)
-function getPaymentHistoryByStudent($conn, $student_id) {
+function getPaymentHistoryByStudent(mysqli $conn, int $student_id): array {
     $student_id = (int)$student_id;
     
     if ($student_id <= 0) {
@@ -410,7 +468,7 @@ function getPaymentHistoryByStudent($conn, $student_id) {
 }
 
 // Get admission fee history for a specific student - STRICT filtering by student_id only
-function getAdmissionFeeHistoryByStudent($conn, $student_id) {
+function getAdmissionFeeHistoryByStudent(mysqli $conn, int $student_id): array {
     $student_id = (int)$student_id;
     
     if ($student_id <= 0) {
@@ -470,7 +528,7 @@ function getAdmissionFeeHistoryByStudent($conn, $student_id) {
  * Ensure students table has admission_date column
  * This stores the date when student was admitted to the system
  */
-function ensureStudentAdmissionDateColumn($conn) {
+function ensureStudentAdmissionDateColumn(mysqli $conn): bool {
     $check_column = mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'admission_date'");
     
     if (!$check_column || mysqli_num_rows($check_column) == 0) {
@@ -485,7 +543,7 @@ function ensureStudentAdmissionDateColumn($conn) {
  * Returns the month that is currently due for payment
  * Example: If admitted April 15, first billing month is May 10
  */
-function getCurrentBillingMonth($conn, $student_id) {
+function getCurrentBillingMonth(mysqli $conn, int $student_id): ?array {
     $student_id = (int)$student_id;
     if ($student_id <= 0) {
         return null;
@@ -515,7 +573,7 @@ function getCurrentBillingMonth($conn, $student_id) {
  * Get the next billing month to be generated
  * Based on admission date, calculate which month should come next
  */
-function getNextBillingMonth($conn, $student_id) {
+function getNextBillingMonth(mysqli $conn, int $student_id): ?array {
     $student_id = (int)$student_id;
     if ($student_id <= 0) {
         return null;
@@ -546,7 +604,7 @@ function getNextBillingMonth($conn, $student_id) {
  * Fetches fee from admission_applications (primary source)
  * This ensures parent sees correct fee from their application
  */
-function getClassFeeAmount($conn, $student_id) {
+function getClassFeeAmount(mysqli $conn, int $student_id): float {
     $student_id = (int)$student_id;
     if ($student_id <= 0) {
         return 0;
@@ -569,7 +627,7 @@ function getClassFeeAmount($conn, $student_id) {
  * Called when student is admitted or when checking fees
  * Generates fees from next billing month onwards (6 months ahead)
  */
-function autoGenerateMonthlyFeesForStudent($conn, $student_id, $class_id) {
+function autoGenerateMonthlyFeesForStudent(mysqli $conn, int $student_id, int $class_id): bool {
     $student_id = (int)$student_id;
     $class_id = (int)$class_id;
     
@@ -630,7 +688,7 @@ function autoGenerateMonthlyFeesForStudent($conn, $student_id, $class_id) {
  * Run this as a daily cron job or manually to ensure all students have up-to-date fees
  * Prevents manual generation and ensures automation
  */
-function autoGenerateMonthlyFeesForAllStudents($conn) {
+function autoGenerateMonthlyFeesForAllStudents(mysqli $conn) {
     $query = "SELECT s.id, s.class_id 
               FROM students s
               WHERE s.status = 1
@@ -656,7 +714,7 @@ function autoGenerateMonthlyFeesForAllStudents($conn) {
  * Get current and next 3 months of fees for a student
  * Used for dashboard display
  */
-function getUpcomingFeesForStudent($conn, $student_id, $limit = 2) {
+function getUpcomingFeesForStudent(mysqli $conn, int $student_id, int $limit = 2): array {
     $student_id = (int)$student_id;
     $limit = (int)$limit;
     
@@ -672,6 +730,9 @@ function getUpcomingFeesForStudent($conn, $student_id, $limit = 2) {
                 (fc.expected_amount - fc.paid_amount) as due_amount,
                 fc.payment_status,
                 fc.due_date,
+                fc.payment_date,
+                fc.payment_method,
+                fc.receipt_no,
                 DATEDIFF(fc.due_date, CURDATE()) as days_remaining,
                 CASE 
                     WHEN fc.payment_status = 'paid' THEN 'paid'

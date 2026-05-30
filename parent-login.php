@@ -342,13 +342,12 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['login'])) {
                 </form>
 
                 <div class="features">
-                    <div class="feature-item">
-                        <i class="fas fa-check-circle"></i>
-                        <span>Check child's attendance</span>
+                    
+                       
                     </div>
                     <div class="feature-item">
                         <i class="fas fa-check-circle"></i>
-                        <span>View exam results & grades</span>
+                        <span>View Weekly test and Monthly test Result</span>
                     </div>
                     <div class="feature-item">
                         <i class="fas fa-check-circle"></i>

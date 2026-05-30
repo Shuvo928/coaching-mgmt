@@ -1,9 +1,27 @@
+<?php
+$defaultHeroVideo = 'assets/videos/1422633-hd_1920_810_24fps.mp4';
+$customHeroVideoFiles = glob(__DIR__ . '/assets/videos/hero-video.*');
+$heroVideoPath = $defaultHeroVideo;
+if (!empty($customHeroVideoFiles) && file_exists($customHeroVideoFiles[0])) {
+    $heroVideoPath = str_replace('\\', '/', substr($customHeroVideoFiles[0], strlen(__DIR__) + 1));
+}
+
+function getVideoMimeType(string $path): string {
+    $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    return match ($ext) {
+        'webm' => 'video/webm',
+        'ogg'  => 'video/ogg',
+        default => 'video/mp4',
+    };
+}
+$heroVideoType = getVideoMimeType($heroVideoPath);
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coaching Pro | Class 9-10 & SSC Preparation</title>
+    <title>Coaching  | Class 9-10 & SSC Preparation</title>
     
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -232,7 +250,7 @@
         .class-card:hover {
             transform: translateY(-3px);
             border-color: var(--cyan);
-            box-shadow: 0 15px 30px rgba(6, 182, 212, 0.15);
+            box-shadow: 0 15px 30px rgba(236, 92, 2, 0.15);
         }
 
         .hero-illustration {
@@ -552,7 +570,7 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav mx-auto">
 <li class="nav-item">
-                        <a class="nav-link" href="contact.php">Home</a>
+                        <a class="nav-link" href="index.php">Home</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="about.php">About</a>
@@ -593,7 +611,7 @@
                     <div class="hero-illustration">
                         <!-- added controls and custom class for additional styling; video remains muted for autoplay support -->
                         <video class="hero-video img-fluid" controls autoplay loop muted playsinline>
-                            <source src="assets/videos/1422633-hd_1920_810_24fps.mp4" type="video/mp4">
+                            <source src="<?php echo htmlspecialchars($heroVideoPath); ?>" type="<?php echo htmlspecialchars($heroVideoType); ?>">
                             Your browser does not support the video tag.
                         </video>
                     </div>
@@ -1260,7 +1278,7 @@
 
 <!-- Loading Spinner -->
 <div class="loading-spinner" id="loadingSpinner"></div>
-
+<!-- what's app icon -->
 <!-- Floating Widgets -->
 <div class="floating-widget">
     <div class="chat-bubble" id="chatBubble">

@@ -351,7 +351,7 @@ $session = $current_year . '-' . ($current_year + 1);
         <div class="sidebar">
             <div class="sidebar-header">
                 <i class="fas fa-graduation-cap fa-3x"></i>
-                <h3>CoachingPro</h3>
+                <h3>Coaching</h3>
                 <small>Admin Panel</small>
             </div>
             
@@ -379,11 +379,7 @@ $session = $current_year . '-' . ($current_year + 1);
     <i class="fas fa-calendar-alt"></i>
     <span>Routine Management</span>
 </a>
-                <a href="parent-discontinue-requests.php" class="menu-item">
-                    <i class="fas fa-user-slash"></i>
-                    <span>Discontinue Requests</span>
-                </a>
-                
+                 
                 <a href="result-system.php" class="menu-item active">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>
@@ -391,6 +387,10 @@ $session = $current_year . '-' . ($current_year + 1);
                 <a href="fees-management.php" class="menu-item">
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
+                </a>
+                <a href="home-video.php" class="menu-item">
+                    <i class="fas fa-video"></i>
+                    <span>Homepage Video</span>
                 </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>

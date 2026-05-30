@@ -36,7 +36,7 @@ if (!empty($student_mobile)) {
 
 $outstanding_balance = getOutstandingBalance($conn, $student_id);
 
-function getPaymentsSummary($conn, $student_id) {
+function getPaymentsSummary(mysqli $conn, int $student_id): ?array {
     $student_id = (int)$student_id;
     $query = "SELECT 
                 COUNT(*) AS total_payments,
@@ -78,7 +78,8 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment
                        payment_status = '$new_status',
                        payment_method = '$payment_method',
                        payment_date = CURDATE(),
-                       transaction_id = '$transaction_id'
+                       transaction_id = '$transaction_id',
+                       receipt_no = '$receipt_no'
                        WHERE id = $monthly_fee_id";
         
         if(mysqli_query($conn, $update_fee)) {
@@ -104,8 +105,9 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['process_monthly_payment
     }
 }
 
-// Ensure fee_collections has due_date column & admission_date column
+// Ensure fee_collections has due_date, receipt_no column & admission_date column
 ensureFeeCollectionsDueDateColumn($conn);
+ensureFeeCollectionsReceiptColumn($conn);
 ensureStudentAdmissionDateColumn($conn);
 
 // Build student filter - ONLY for current viewing student
@@ -120,8 +122,8 @@ $fees = getStudentFeesWithDueInfo($conn, $student_id);
 // Get current billing month information
 $current_billing_month = getCurrentBillingMonth($conn, $student_id);
 
-// Get upcoming fees for display (limit to 2 months)
-$upcoming_fees = getUpcomingFeesForStudent($conn, $student_id, 2);
+// Get upcoming fees for display (limit to 1 month - only next month)
+$upcoming_fees = getUpcomingFeesForStudent($conn, $student_id, 1);
 
 // Build due_fee_options for payment modal
 $due_fee_options = [];
@@ -744,16 +746,11 @@ if ($receipt_to_view) {
                         Dashboard
                     </a>
                 </li>
-                <li>
-                    <a href="attendance.php">
-                        <i class="fas fa-calendar-check"></i>
-                        Attendance
-                    </a>
-                </li>
+               
                 <li>
                     <a href="results.php">
                         <i class="fas fa-chart-bar"></i>
-                        Results & Grades
+                         Check Results 
                     </a>
                 </li>
                 <li>
@@ -762,8 +759,7 @@ if ($receipt_to_view) {
                         Fees & Payments
                     </a>
                 </li>
-                
-                <li>
+                 <li>
                     <a href="../parent-logout.php">
                         <i class="fas fa-sign-out-alt"></i>
                         Logout
@@ -907,26 +903,6 @@ if ($receipt_to_view) {
                 </div>
                 </div>
 
-            <!-- Pay Bill Section -->
-            <div class="pay-bill-section">
-                <h3><i class="fas fa-credit-card me-2"></i>Pay Your Monthly Fees</h3>
-                <p style="margin: 0 0 20px 0; opacity: 0.9;">Easily pay your fees using mobile banking services</p>
-                
-                <div class="pay-bill-info">
-                    <div class="pay-bill-info-item">
-                        <div class="pay-bill-info-label">Outstanding Balance</div>
-                        <div class="pay-bill-info-value">৳<?php echo number_format($outstanding_balance, 2); ?></div>
-                    </div>
-                </div>
-
-                <button class="pay-bill-btn" type="button" onclick="openPaymentModalWithDefaultMonth()" data-bs-toggle="modal" data-bs-target="#paymentModal" <?php echo count($due_fee_options) === 0 ? 'disabled style="opacity: 0.7; cursor: not-allowed;"' : ''; ?> >
-                    <i class="fas fa-arrow-right me-2"></i><?php echo count($due_fee_options) > 0 ? 'Pay Now' : 'Pay Now'; ?>
-                </button>
-                <?php if (count($due_fee_options) === 0): ?>
-                    <div style="margin-top: 15px; color: #c62828; font-weight: 600;">No due fees available to pay.</div>
-                <?php endif; ?>
-            </div>
-
             <!-- Policy Declaration Section -->
             <div style="background: linear-gradient(135deg, #e8f5e9, #c8e6c9); border-left: 5px solid #4caf50; border-radius: 12px; padding: 25px; margin-bottom: 30px; box-shadow: 0 5px 20px rgba(76, 175, 80, 0.1);">
                 <div style="display: flex; align-items: flex-start; gap: 15px;">
@@ -936,7 +912,7 @@ if ($receipt_to_view) {
                     <div style="flex: 1;">
                         <h5 style="color: #2e7d32; font-weight: 700; margin-bottom: 12px;">Important Policy Information</h5>
                         <p style="color: #1b5e20; margin: 0; line-height: 1.6; font-size: 14px;">
-                            <strong>You have already paid the fees for the current month,</strong> which have been securely recorded in your child's account. If your child discontinues enrollment at our coaching center, this amount will be refundable in accordance with our policy.
+                            <strong>You have already paid the Admission month Fees,</strong>So the payment only appicalbe for next month. Please ensure to pay the monthly fees on time to avoid any late charges or disruptions in your child's access to our coaching services. If you have any questions about the fee structure or payment process, feel free to contact our support team. We are here to assist you and ensure a smooth experience for you and your child.
                         </p>
                     </div>
                 </div>
@@ -958,6 +934,9 @@ if ($receipt_to_view) {
                                 <th>Paid</th>
                                 <th>Due</th>
                                 <th>Due Date</th>
+                                <th>Payment Date</th>
+                                <th>Payment Method</th>
+                                <th>Receipt</th>
                                 <th>Status</th>
                                 <th>Action</th>
                             </tr>
@@ -999,6 +978,9 @@ if ($receipt_to_view) {
                                         </small>
                                     <?php endif; ?>
                                 </td>
+                                <td><?php echo $row['payment_date'] ? date('d M, Y', strtotime($row['payment_date'])) : '--'; ?></td>
+                                <td><?php echo htmlspecialchars($row['payment_method'] ?? '--'); ?></td>
+                                <td><?php echo htmlspecialchars($row['receipt_no'] ?? '--'); ?></td>
                                 <td>
                                     <span class="<?php echo $status_class; ?>">
                                         <?php echo $display_status; ?>
@@ -1040,8 +1022,7 @@ if ($receipt_to_view) {
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <form id="paymentForm" method="POST">
-                        <input type="hidden" name="process_monthly_payment" value="1">
+                    <form id="paymentForm" method="POST" action="sslcz_pay.php">
                         <input type="hidden" name="monthly_fee_id" id="monthly_fee_id">
                         
                         <!-- Month Selection -->
@@ -1067,42 +1048,26 @@ if ($receipt_to_view) {
                             <small class="text-danger" id="amount_error"></small>
                         </div>
 
-                        <!-- Payment Methods -->
+                        <!-- Payment Method Selection -->
                         <div class="mb-4">
-                            <label class="form-label fw-600">Select Payment Method <span style="color: #f44336;">*</span></label>
-                            <div class="payment-methods">
-                                <div class="payment-method" onclick="selectPaymentMethod(this, 'bKash')">
-                                    <i class="fas fa-mobile-alt"></i>
-                                    <input type="radio" name="payment_method" value="bKash" style="display: none;">
-                                    <label>bKash</label>
-                                </div>
-                                <div class="payment-method" onclick="selectPaymentMethod(this, 'Nagad')">
-                                    <i class="fas fa-wallet"></i>
-                                    <input type="radio" name="payment_method" value="Nagad" style="display: none;">
-                                    <label>Nagad</label>
-                                </div>
-                                <div class="payment-method" onclick="selectPaymentMethod(this, 'Rocket')">
-                                    <i class="fas fa-rocket"></i>
-                                    <input type="radio" name="payment_method" value="Rocket" style="display: none;">
-                                    <label>Rocket</label>
-                                </div>
-                                <div class="payment-method" onclick="selectPaymentMethod(this, 'Cash')">
-                                    <i class="fas fa-money-bill"></i>
-                                    <input type="radio" name="payment_method" value="Cash" style="display: none;">
-                                    <label>Cash at Office</label>
-                                </div>
-                            </div>
-                            <small class="text-danger" id="method_error"></small>
+                            <label class="form-label fw-600">Payment Method <span style="color: #f44336;">*</span></label>
+                            <select name="payment_method" id="payment_method" class="form-select" required>
+                                <option value="">-- Select Payment Method --</option>
+                                <option value="bKash">bKash</option>
+                                <option value="Nagad">Nagad</option>
+                                <option value="Upay">Upay</option>
+                                <option value="Banking Card">Banking Card</option>
+                                <option value="Card">Card</option>
+                                <option value="Bank Transfer">Bank Transfer</option>
+                                <option value="Cash">Cash</option>
+                                <option value="Other">Other</option>
+                            </select>
                         </div>
 
-                        <!-- Transaction ID -->
-                        <div class="mb-4">
-                            <label class="form-label fw-600">Transaction ID / Reference <span style="color: #f44336;">*</span></label>
-                            <input type="text" name="transaction_id" id="transaction_id" class="form-control" 
-                                   placeholder="e.g., Your bKash PIN or receipt number" required>
-                            <small class="text-muted" id="method_hint">For mobile banking: your transaction confirmation number</small>
+                        <div class="mb-2 text-muted">
+                            <small>After you click Confirm Payment, the system will open SSLCommerz for checkout.
+                            Once the transaction is completed, it will verify the payment automatically.</small>
                         </div>
-
                         <!-- Submit Button -->
                         <div class="d-grid">
                             <button type="submit" class="btn btn-lg" style="background: linear-gradient(135deg, #f44336, #d32f2f); color: white; font-weight: 600;">
@@ -1119,7 +1084,6 @@ if ($receipt_to_view) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
-        let selectedPaymentMethod = null;
         let currentDueAmount = null;
         const feeOptions = <?php echo json_encode(array_values($due_fee_options)); ?>;
 
@@ -1153,7 +1117,6 @@ if ($receipt_to_view) {
             document.getElementById('payment_amount').max = dueAmountValue;
             currentDueAmount = dueAmountValue;
             document.getElementById('amount_error').textContent = '';
-            document.getElementById('method_error').textContent = '';
         }
 
         function initializeMonthlyPayment(monthlyFeeId, dueAmount, monthName) {
@@ -1161,10 +1124,6 @@ if ($receipt_to_view) {
             currentDueAmount = parseFloat(dueAmount) || null;
             updateSelectedFee();
             document.getElementById('monthly_fee_id').value = monthlyFeeId;
-            document.getElementById('transaction_id').value = '';
-            document.querySelectorAll('.payment-method').forEach(el => el.classList.remove('selected'));
-            document.querySelectorAll('input[name="payment_method"]').forEach(el => el.checked = false);
-            selectedPaymentMethod = null;
         }
 
         function openPaymentModalWithDefaultMonth() {
@@ -1176,39 +1135,10 @@ if ($receipt_to_view) {
             initializeMonthlyPayment(firstOption.id, firstOption.due_amount, firstOption.fee_month);
         }
 
-        function selectPaymentMethod(element, method) {
-            // Deselect all
-            document.querySelectorAll('.payment-method').forEach(el => el.classList.remove('selected'));
-            
-            // Select this one
-            element.classList.add('selected');
-            element.querySelector('input[type="radio"]').checked = true;
-            selectedPaymentMethod = method;
-            document.getElementById('method_error').textContent = '';
-
-            // Update hint text
-            const hint = document.getElementById('method_hint');
-            if (method === 'bKash') {
-                hint.textContent = 'For bKash: Enter your transaction reference number or PIN';
-            } else if (method === 'Nagad') {
-                hint.textContent = 'For Nagad: Enter your transaction confirmation number';
-            } else if (method === 'Rocket') {
-                hint.textContent = 'For Rocket: Enter your transaction reference number';
-            } else if (method === 'Cash') {
-                hint.textContent = 'For Cash Payment: You can enter any reference or "CASH"';
-            }
-        }
-
         document.getElementById('paymentForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
             const amount = parseFloat(document.getElementById('payment_amount').value);
-            
-            // Validation
-            if(!selectedPaymentMethod) {
-                document.getElementById('method_error').textContent = 'Please select a payment method';
-                return false;
-            }
             
             if (currentDueAmount === null || currentDueAmount <= 0) {
                 document.getElementById('amount_error').textContent = 'Please select a month with a valid due amount.';
@@ -1220,7 +1150,7 @@ if ($receipt_to_view) {
                 return false;
             }
             
-            // Submit form
+            // Submit the payment request to SSLCommerz
             this.submit();
         });
 

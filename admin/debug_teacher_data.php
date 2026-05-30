@@ -46,7 +46,7 @@ $students_query = "SELECT s.id, s.first_name, s.last_name, s.roll_number, c.clas
 $students_result = mysqli_query($conn, $students_query);
 echo "<br>Students in teacher's classes (" . mysqli_num_rows($students_result) . "):<br>";
 $count = 0;
-while($row = mysqli_fetch_assoc($students_result) && $count < 5) {
+while (($row = mysqli_fetch_assoc($students_result)) && $count < 5) {
     echo "- " . $row['roll_number'] . ' - ' . $row['first_name'] . ' ' . $row['last_name'] . ' (' . $row['class_name'] . ')<br>';
     $count++;
 }

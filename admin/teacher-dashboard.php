@@ -20,6 +20,11 @@ if (mysqli_num_rows($teacher_result) == 0) {
 $teacher = mysqli_fetch_assoc($teacher_result);
 $teacher_id = $teacher['id'];
 
+function extractClassNameFromGroup(string $classGroup): string {
+    $parts = preg_split('/\s*[–—-]\s*/u', $classGroup);
+    return isset($parts[0]) ? trim($parts[0]) : trim($classGroup);
+}
+
 // ------------------------------------------------------------------
 // 1. Fetch teacher's assigned subjects (for validation & dropdown)
 // ------------------------------------------------------------------
@@ -144,19 +149,28 @@ $teacher_routines = [];
 $found_routine_combinations = [];
 $missing_routine_combos = [];
 
-// Build teacher routine query
-$teacher_routine_query = "SELECT cr.*, c.class_name, s.subject_name
-                  FROM class_routine cr
-                  JOIN classes c ON cr.class_id = c.id
-                  JOIN subjects s ON cr.subject_id = s.id
-                  WHERE cr.teacher_id = $teacher_id";
+// Build teacher routine query from the admin-managed current timetable.
+$first_name = trim($teacher['first_name']);
+$last_name = trim($teacher['last_name']);
+$full_name = trim($first_name . ' ' . $last_name);
 
-if (!empty($allowed_subject_ids)) {
-    $teacher_routine_query .= " AND cr.subject_id IN (" . implode(',', array_map('intval', $allowed_subject_ids)) . ")";
+$teacher_routine_query = "SELECT id, class_group AS class_name, subject AS subject_name, day, start_time, end_time, room
+                         FROM `routine`
+                         WHERE LOWER(TRIM(teacher)) = LOWER('" . mysqli_real_escape_string($conn, $full_name) . "')";
+
+// Only include routines that match the teacher's assigned class+subject combinations.
+$assigned_conditions = [];
+foreach ($allowed_combinations as $comb) {
+    $subject_name = mysqli_real_escape_string($conn, $comb['subject_name']);
+    $class_name = mysqli_real_escape_string($conn, $comb['class_name']);
+    $assigned_conditions[] = "(LOWER(subject) = LOWER('$subject_name') AND LOWER(class_group) LIKE LOWER('$class_name%'))";
 }
 
-$teacher_routine_query .= "
-                  ORDER BY FIELD(cr.day,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), cr.start_time";
+if (!empty($assigned_conditions)) {
+    $teacher_routine_query .= " AND (" . implode(' OR ', $assigned_conditions) . ")";
+}
+
+$teacher_routine_query .= " ORDER BY FIELD(day,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), start_time";
 
 $routine_result = mysqli_query($conn, $teacher_routine_query);
 if (!$routine_result) {
@@ -166,56 +180,6 @@ if (!$routine_result) {
         $teacher_routines[] = $row;
         $key = strtolower(trim($row['class_name'] . '|' . $row['subject_name']));
         $found_routine_combinations[$key] = true;
-    }
-}
-
-// Also include legacy routine items from the custom `routine` table when the teacher has assigned subjects or matching teacher name.
-$first_name = trim($teacher['first_name']);
-$last_name = trim($teacher['last_name']);
-$full_name = trim($first_name . ' ' . $last_name);
-$legacy_conditions = [];
-
-// Match by assigned subject + class combination from allowed teacher assignments.
-foreach ($allowed_combinations as $comb) {
-    $subject_name = mysqli_real_escape_string($conn, $comb['subject_name']);
-    $class_name = mysqli_real_escape_string($conn, $comb['class_name']);
-    $legacy_conditions[] = "(LOWER(subject) = LOWER('$subject_name') AND LOWER(class_group) LIKE LOWER('$class_name%'))";
-}
-
-// Additional fallback: match by teacher name and assigned subjects.
-$teacher_name_conditions = [];
-if ($full_name !== '') {
-    $escaped_full_name = mysqli_real_escape_string($conn, $full_name);
-    $teacher_name_conditions[] = "LOWER(TRIM(teacher)) = LOWER('$escaped_full_name')";
-}
-if ($first_name !== '') {
-    $escaped_first_name = mysqli_real_escape_string($conn, $first_name);
-    $teacher_name_conditions[] = "LOWER(TRIM(teacher)) = LOWER('$escaped_first_name')";
-}
-if ($last_name !== '') {
-    $escaped_last_name = mysqli_real_escape_string($conn, $last_name);
-    $teacher_name_conditions[] = "LOWER(TRIM(teacher)) = LOWER('$escaped_last_name')";
-}
-
-if (!empty($teacher_name_conditions) && !empty($allowed_subject_names)) {
-    $escaped_names = array_map(function($name) use ($conn) {
-        return "'" . mysqli_real_escape_string($conn, mb_strtolower($name, 'UTF-8')) . "'";
-    }, $allowed_subject_names);
-    $legacy_conditions[] = "(" . implode(' OR ', $teacher_name_conditions) . ") AND LOWER(subject) IN (" . implode(',', $escaped_names) . ")";
-}
-
-if (!empty($legacy_conditions)) {
-    $legacy_routine_query = "SELECT 0 AS id, class_group AS class_name, subject AS subject_name, day, start_time, end_time, room
-                            FROM `routine`
-                            WHERE " . implode(' OR ', $legacy_conditions) . "
-                            ORDER BY FIELD(day,'Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), start_time";
-    $legacy_routine_result = mysqli_query($conn, $legacy_routine_query);
-    if ($legacy_routine_result) {
-        while ($row = mysqli_fetch_assoc($legacy_routine_result)) {
-            $teacher_routines[] = $row;
-            $key = strtolower(trim($row['class_name'] . '|' . $row['subject_name']));
-            $found_routine_combinations[$key] = true;
-        }
     }
 }
 
@@ -245,6 +209,35 @@ usort($teacher_routines, function ($a, $b) use ($days_order) {
     }
     return strcmp($a['start_time'], $b['start_time']);
 });
+
+// Filter out conflicting teacher routines so the dashboard shows only the first valid slot for any overlapping day/time or room conflict.
+$filtered_teacher_routines = [];
+foreach ($teacher_routines as $routine) {
+    $conflictFound = false;
+    foreach ($filtered_teacher_routines as $existing) {
+        if ($existing['day'] !== $routine['day']) {
+            continue;
+        }
+
+        $existingStart = $existing['start_time'];
+        $existingEnd = $existing['end_time'];
+        $currentStart = $routine['start_time'];
+        $currentEnd = $routine['end_time'];
+
+        $timesOverlap = !($existingEnd <= $currentStart || $existingStart >= $currentEnd);
+        $roomConflict = $existing['room'] !== '' && $routine['room'] !== '' && trim($existing['room']) === trim($routine['room']) && $timesOverlap;
+
+        if ($timesOverlap || $roomConflict) {
+            $conflictFound = true;
+            break;
+        }
+    }
+
+    if (!$conflictFound) {
+        $filtered_teacher_routines[] = $routine;
+    }
+}
+$teacher_routines = $filtered_teacher_routines;
 
 // ------------------------------------------------------------------
 // 6. Fetch class & group lists for dynamic dropdowns (only those where teacher has at least one subject)

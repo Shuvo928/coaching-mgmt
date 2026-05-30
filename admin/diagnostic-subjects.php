@@ -104,7 +104,7 @@ if($class_id_exists) {
             echo "<table border='1' cellpadding='10' style='border-collapse: collapse; width: 100%;'>";
             echo "<tr style='background: #667eea; color: white;'><th>Subject ID</th><th>Subject Name</th><th>Class Name</th><th>Class ID</th></tr>";
             $i = 0;
-            while($row = mysqli_fetch_assoc($test_result) && $i < 10) {
+            while(($row = mysqli_fetch_assoc($test_result)) && $i < 10) {
                 echo "<tr>";
                 echo "<td>" . $row['id'] . "</td>";
                 echo "<td>" . $row['subject_name'] . "</td>";

@@ -99,6 +99,80 @@ function formatRoutineCell(mixed $value): string {
     return $value === '' ? 'Not assigned yet' : htmlspecialchars($value);
 }
 
+function normalizeText(string $value): string {
+    return mb_strtolower(trim(preg_replace('/\s+/', ' ', $value)));
+}
+
+function formatRoutineKey(array $routine): string {
+    $day = normalizeText((string)($routine['day'] ?? ''));
+    $start = trim((string)($routine['start_time'] ?? ''));
+    $end = trim((string)($routine['end_time'] ?? ''));
+
+    if ($day === '' || $start === '' || $end === '') {
+        return '';
+    }
+
+    $normalizedStart = date('H:i', strtotime($start));
+    $normalizedEnd = date('H:i', strtotime($end));
+    if ($normalizedStart === '00:00' && $start !== '00:00') {
+        return '';
+    }
+    if ($normalizedEnd === '00:00' && $end !== '00:00') {
+        return '';
+    }
+
+    return $day . '|' . $normalizedStart . '|' . $normalizedEnd;
+}
+
+function getRoutinePriorityScore(array $routine): int {
+    $score = 0;
+    $teacher = trim((string)($routine['teacher'] ?? ''));
+    $subject = trim((string)($routine['subject'] ?? ''));
+    $room = trim((string)($routine['room'] ?? ''));
+
+    if ($teacher !== '') {
+        $score += 4;
+    }
+    if ($subject !== '') {
+        $score += 2;
+    }
+    if ($room !== '') {
+        $score += 1;
+    }
+
+    return $score;
+}
+
+function dedupeStudentRoutine(array $routineRows): array {
+    $deduped = [];
+    $keyIndex = [];
+
+    foreach ($routineRows as $routine) {
+        $key = formatRoutineKey($routine);
+        if ($key === '') {
+            $deduped[] = $routine;
+            continue;
+        }
+
+        if (!isset($keyIndex[$key])) {
+            $keyIndex[$key] = count($deduped);
+            $deduped[] = $routine;
+            continue;
+        }
+
+        $existingIndex = $keyIndex[$key];
+        $existing = $deduped[$existingIndex];
+        $existingScore = getRoutinePriorityScore($existing);
+        $newScore = getRoutinePriorityScore($routine);
+
+        if ($newScore > $existingScore) {
+            $deduped[$existingIndex] = $routine;
+        }
+    }
+
+    return $deduped;
+}
+
 function getTeacherDisplayName(\mysqli $conn, string $teacherName): string {
     $teacherName = trim((string)$teacherName);
     if ($teacherName === '') {
@@ -117,6 +191,68 @@ function getTeacherDisplayName(\mysqli $conn, string $teacherName): string {
     mysqli_stmt_close($stmt);
 
     return $exists ? htmlspecialchars($teacherName) : 'Not assigned yet';
+}
+
+function getAssignedClassSubjectsForStudent(\mysqli $conn, int $classId, string $groupName = ''): array {
+    if ($classId <= 0) {
+        return [];
+    }
+
+    $hasClassIdColumn = false;
+    $columnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+    if ($columnCheck && mysqli_num_rows($columnCheck) > 0) {
+        $hasClassIdColumn = true;
+    }
+
+    $hasStreamColumn = false;
+    $streamCheck = mysqli_query($conn, "SHOW COLUMNS FROM subjects LIKE 'stream'");
+    if ($streamCheck && mysqli_num_rows($streamCheck) > 0) {
+        $hasStreamColumn = true;
+    }
+
+    $sql = "SELECT DISTINCT s.subject_name, CONCAT(TRIM(t.first_name), ' ', TRIM(t.last_name)) AS teacher_name
+            FROM teacher_subjects ts
+            JOIN subjects s ON ts.subject_id = s.id
+            JOIN teachers t ON ts.teacher_id = t.id AND t.status = 1
+            WHERE s.class_id = ?";
+
+    if ($hasClassIdColumn) {
+        $sql .= " AND ts.class_id = ?";
+    }
+
+    if ($hasStreamColumn && trim($groupName) !== '') {
+        $sql .= " AND LOWER(TRIM(s.stream)) = LOWER(TRIM(?))";
+    }
+
+    $sql .= " ORDER BY s.subject_name";
+
+    $stmt = mysqli_prepare($conn, $sql);
+    if (!$stmt) {
+        return [];
+    }
+
+    if ($hasClassIdColumn && $hasStreamColumn && trim($groupName) !== '') {
+        mysqli_stmt_bind_param($stmt, 'iis', $classId, $classId, $groupName);
+    } elseif ($hasClassIdColumn) {
+        mysqli_stmt_bind_param($stmt, 'ii', $classId, $classId);
+    } elseif ($hasStreamColumn && trim($groupName) !== '') {
+        mysqli_stmt_bind_param($stmt, 'is', $classId, $groupName);
+    } else {
+        mysqli_stmt_bind_param($stmt, 'i', $classId);
+    }
+
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $subjects = [];
+    while ($result && ($row = mysqli_fetch_assoc($result))) {
+        $subjects[] = [
+            'subject' => trim($row['subject_name'] ?? ''),
+            'teacher' => trim($row['teacher_name'] ?? '')
+        ];
+    }
+    mysqli_stmt_close($stmt);
+
+    return $subjects;
 }
 
 if (!empty($user['id'])) {
@@ -154,20 +290,30 @@ if (!empty($user['id'])) {
         }
         
         // Build the class_group string to match with routine table
-        if (!empty($class_number) && !empty($group_name)) {
-            // Normalize group names to title case (Science Group, Commerce Group, Humanities Group)
-            $group_display = ucfirst(strtolower($group_name));
-            if (stripos($group_display, 'group') === false) {
-                $group_display .= ' Group';
+        if (!empty($class_number)) {
+            $expected_class_group = $class_number;
+            if (!empty($group_name)) {
+                $expected_class_group .= ' — ' . $group_name;
             }
-            $expected_class_group = $class_number . ' — ' . $group_display;
+
+            // Also allow matching the alternate form with/without the suffix "Group".
+            if (!empty($group_name)) {
+                if (stripos($group_name, 'group') === false) {
+                    $alternate_class_group = $class_number . ' — ' . $group_name . ' Group';
+                } else {
+                    $alternate_class_group = $class_number . ' — ' . preg_replace('/\s+Group$/i', '', $group_name);
+                }
+            }
         }
 
         // Query routine from the new routine table
         if (!empty($expected_class_group)) {
             $routine_query = "SELECT * FROM `routine` 
-                              WHERE class_group = '" . mysqli_real_escape_string($conn, $expected_class_group) . "' 
-                              ORDER BY FIELD(day, 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'), start_time";
+                              WHERE class_group = '" . mysqli_real_escape_string($conn, $expected_class_group) . "'";
+            if (!empty($alternate_class_group) && $alternate_class_group !== $expected_class_group) {
+                $routine_query .= " OR class_group = '" . mysqli_real_escape_string($conn, $alternate_class_group) . "'";
+            }
+            $routine_query .= " ORDER BY FIELD(day, 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'), start_time";
         } else {
             // Fallback if class_group cannot be determined
             $routine_query = "SELECT * FROM `routine` LIMIT 0";
@@ -178,7 +324,36 @@ if (!empty($user['id'])) {
             $class_routine[] = $routine;
         }
 
-        // Build results query to include weekly and monthly tests
+        // Remove duplicate student routine rows that occur on the same day and same time,
+        // keeping the row with the highest assignment completeness (teacher/subject/room).
+        $class_routine = dedupeStudentRoutine($class_routine);
+
+        // Append any assigned subjects for the student's class that are not yet part of the admin-defined routine.
+        $assignedSubjects = getAssignedClassSubjectsForStudent($conn, intval($student['class_id'] ?? 0), $student['group_name'] ?? '');
+        if (!empty($assignedSubjects)) {
+            $existingSubjects = array_map('normalizeText', array_column($class_routine, 'subject'));
+            foreach ($assignedSubjects as $assignedSubject) {
+                $subjectName = trim($assignedSubject['subject'] ?? '');
+                $teacherName = trim($assignedSubject['teacher'] ?? '');
+                if ($subjectName === '' || $teacherName === '') {
+                    continue;
+                }
+                $normalizedSubjectName = normalizeText($subjectName);
+                if (in_array($normalizedSubjectName, $existingSubjects, true)) {
+                    continue;
+                }
+                $class_routine[] = [
+                    'day' => '',
+                    'subject' => $subjectName,
+                    'teacher' => $teacherName,
+                    'room' => '',
+                    'start_time' => '',
+                    'end_time' => ''
+                ];
+            }
+        }
+
+        // Build results query to include weekly and monthly tests and teacher name
         $results_query = "SELECT r.*, 
                           CASE 
                             WHEN r.test_type = 'weekly_test' THEN 'Weekly Test'
@@ -186,9 +361,20 @@ if (!empty($user['id'])) {
                             WHEN r.test_type = 'exam' THEN 'Exam'
                             ELSE 'Test'
                           END AS test_name,
-                          sub.subject_name, r.exam_date AS exam_date
+                          sub.subject_name,
+                          COALESCE(
+                              (SELECT CONCAT(TRIM(t.first_name), ' ', TRIM(t.last_name))
+                               FROM teacher_subjects ts
+                               JOIN teachers t ON ts.teacher_id = t.id
+                               WHERE ts.subject_id = r.subject_id
+                                 AND ts.class_id = s.class_id
+                               LIMIT 1),
+                              'N/A'
+                          ) AS teacher_name,
+                          r.exam_date AS exam_date
                           FROM results r 
                           LEFT JOIN subjects sub ON r.subject_id = sub.id 
+                          LEFT JOIN students s ON r.student_id = s.id 
                           WHERE r.student_id = " . intval($student['id']) . " 
                           ORDER BY r.created_at DESC LIMIT 10";
         $results_result = mysqli_query($conn, $results_query);
@@ -239,6 +425,9 @@ if (!empty($user['id'])) {
         .profile-card { padding: 30px; }
         .profile-avatar { width: 100px; height: 100px; border-radius: 50%; background: #3b82f6; color: white; display: flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 20px; }
         .info-list dt { font-weight: 600; }
+        .recent-results-table { width: 100%; table-layout: fixed; }
+        .recent-results-table th,
+        .recent-results-table td { white-space: normal; word-break: break-word; }
         
         /* Notifications Bell */
         .notifications-bell { position: relative; cursor: pointer; font-size: 1.3rem; margin-right: 15px; color: #333; }
@@ -299,7 +488,7 @@ if (!empty($user['id'])) {
 
         <div class="card mb-4 p-4 text-dark" style="background: #ffffff; border-radius: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.04);">
             <p class="mb-0" style="font-size: 1rem; line-height: 1.8;">
-                "Every number you see here tells a story — your attendance, your results, your progress. These are not just records; they are reflections of your effort, your discipline, and your growth. Every class you attend is a step forward. Every improvement, no matter how small, is a victory."
+                "Every number you see here tells a story — your results and progress. These are not just records; they are reflections of your effort, your discipline, and your growth. Every improvement, no matter how small, is a victory."
             </p>
         </div>
 
@@ -490,11 +679,12 @@ if (!empty($user['id'])) {
                             <?php endif; ?>
                         </div>
                         <div class="table-responsive">
-                            <table class="table table-bordered table-striped mb-0">
+                            <table class="table table-bordered table-striped mb-0 recent-results-table">
                                 <thead>
                                     <tr>
                                         <th>Exam</th>
                                         <th>Subject</th>
+                                        <th>Teacher</th>
                                         <th>Marks</th>
                                         <th>Exam Date</th>
                                         <th>Comment</th>
@@ -517,6 +707,7 @@ if (!empty($user['id'])) {
                                         <tr>
                                             <td><?php echo htmlspecialchars($result['test_name'] ?? 'Test'); ?></td>
                                             <td><?php echo htmlspecialchars($result['subject_name'] ?? 'N/A'); ?></td>
+                                            <td><?php echo htmlspecialchars($result['teacher_name'] ?? 'N/A'); ?></td>
                                             <td><?php 
                                                 if (isset($result['marks_obtained']) && $result['marks_obtained'] !== null) {
                                                     if (isset($result['total_marks']) && $result['total_marks'] !== null && $result['total_marks'] > 0) {

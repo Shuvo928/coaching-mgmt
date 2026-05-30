@@ -29,14 +29,20 @@ try {
             id INT AUTO_INCREMENT PRIMARY KEY,
             student_id INT NOT NULL,
             class_id INT,
+            fee_head_id INT DEFAULT NULL,
             fee_month VARCHAR(50) NOT NULL,
             expected_amount DECIMAL(10,2) NOT NULL,
+            amount DECIMAL(10,2) DEFAULT NULL,
             paid_amount DECIMAL(10,2) DEFAULT 0,
+            due_amount DECIMAL(10,2) DEFAULT NULL,
             payment_status VARCHAR(20) DEFAULT 'unpaid',
+            status VARCHAR(20) DEFAULT 'Unpaid',
             payment_method VARCHAR(50),
             payment_date DATE,
             due_date DATE,
             transaction_id VARCHAR(100),
+            receipt_no VARCHAR(50) DEFAULT NULL,
+            remarks TEXT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
@@ -69,7 +75,56 @@ try {
         $output[] = "✓ due_date column already exists in fee_collections table";
     }
 
-    // 4. Add unique constraint on student + fee_month if not exists
+    // 4. Ensure receipt_no column exists
+    $check_receipt_no = mysqli_query($conn, "SHOW COLUMNS FROM fee_collections LIKE 'receipt_no'");
+    if (!$check_receipt_no || mysqli_num_rows($check_receipt_no) == 0) {
+        $add_receipt_no = "ALTER TABLE fee_collections ADD COLUMN receipt_no VARCHAR(50) DEFAULT NULL AFTER transaction_id";
+        if (mysqli_query($conn, $add_receipt_no)) {
+            $output[] = "✓ Added receipt_no column to fee_collections table";
+        } else {
+            throw new Exception("Error adding receipt_no: " . mysqli_error($conn));
+        }
+    } else {
+        $output[] = "✓ receipt_no column already exists in fee_collections table";
+    }
+
+    // 5. Ensure fee_head_id column exists
+    $check_fee_head_id = mysqli_query($conn, "SHOW COLUMNS FROM fee_collections LIKE 'fee_head_id'");
+    if (!$check_fee_head_id || mysqli_num_rows($check_fee_head_id) == 0) {
+        $add_fee_head_id = "ALTER TABLE fee_collections ADD COLUMN fee_head_id INT DEFAULT NULL AFTER class_id";
+        if (mysqli_query($conn, $add_fee_head_id)) {
+            $output[] = "✓ Added fee_head_id column to fee_collections table";
+        } else {
+            throw new Exception("Error adding fee_head_id: " . mysqli_error($conn));
+        }
+    } else {
+        $output[] = "✓ fee_head_id column already exists in fee_collections table";
+    }
+
+    // 6. Ensure amount, due_amount, status and remarks columns exist
+    $columns_to_check = [
+        'amount' => "ALTER TABLE fee_collections ADD COLUMN amount DECIMAL(10,2) DEFAULT NULL AFTER expected_amount",
+        'due_amount' => "ALTER TABLE fee_collections ADD COLUMN due_amount DECIMAL(10,2) DEFAULT NULL AFTER paid_amount",
+        'status' => "ALTER TABLE fee_collections ADD COLUMN status VARCHAR(20) DEFAULT 'Unpaid' AFTER payment_status",
+        'payment_method' => "ALTER TABLE fee_collections ADD COLUMN payment_method VARCHAR(50) DEFAULT NULL AFTER status",
+        'transaction_id' => "ALTER TABLE fee_collections ADD COLUMN transaction_id VARCHAR(100) DEFAULT NULL AFTER due_date",
+        'remarks' => "ALTER TABLE fee_collections ADD COLUMN remarks TEXT DEFAULT NULL AFTER receipt_no"
+    ];
+
+    foreach ($columns_to_check as $column => $alter_query) {
+        $check_column = mysqli_query($conn, "SHOW COLUMNS FROM fee_collections LIKE '$column'");
+        if (!$check_column || mysqli_num_rows($check_column) == 0) {
+            if (mysqli_query($conn, $alter_query)) {
+                $output[] = "✓ Added $column column to fee_collections table";
+            } else {
+                throw new Exception("Error adding $column: " . mysqli_error($conn));
+            }
+        } else {
+            $output[] = "✓ $column column already exists in fee_collections table";
+        }
+    }
+
+    // 7. Add unique constraint on student + fee_month if not exists
     $check_unique = mysqli_query($conn, "SHOW INDEX FROM fee_collections WHERE Key_name = 'unique_student_month'");
     if (!$check_unique || mysqli_num_rows($check_unique) == 0) {
         // Try to add unique constraint - it might fail if duplicates exist

@@ -32,8 +32,168 @@ $student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $stu
 
 $student_class_name = '';
 $student_group_name = '';
+$student_class_id = 0;
 $expected_class_group = '';
 $class_routine = [];
+
+// Helper function to normalize text
+function normalizeText(string $value): string {
+    return mb_strtolower(trim(preg_replace('/\s+/', ' ', $value)));
+}
+
+function formatRoutineKey(array $routine): string {
+    $day = normalizeText((string)($routine['day'] ?? ''));
+    $start = trim((string)($routine['start_time'] ?? ''));
+    $end = trim((string)($routine['end_time'] ?? ''));
+
+    if ($day === '' || $start === '' || $end === '') {
+        return '';
+    }
+
+    $normalizedStart = date('H:i', strtotime($start));
+    $normalizedEnd = date('H:i', strtotime($end));
+    if ($normalizedStart === '00:00' && $start !== '00:00') {
+        return '';
+    }
+    if ($normalizedEnd === '00:00' && $end !== '00:00') {
+        return '';
+    }
+
+    return $day . '|' . $normalizedStart . '|' . $normalizedEnd;
+}
+
+function getRoutinePriorityScore(array $routine): int {
+    $score = 0;
+    $teacher = trim((string)($routine['teacher'] ?? ''));
+    $subject = trim((string)($routine['subject'] ?? ''));
+    $room = trim((string)($routine['room'] ?? ''));
+
+    if ($teacher !== '') {
+        $score += 4;
+    }
+    if ($subject !== '') {
+        $score += 2;
+    }
+    if ($room !== '') {
+        $score += 1;
+    }
+
+    return $score;
+}
+
+function dedupeStudentRoutine(array $routineRows): array {
+    $deduped = [];
+    $keyIndex = [];
+
+    foreach ($routineRows as $routine) {
+        $key = formatRoutineKey($routine);
+        if ($key === '') {
+            $deduped[] = $routine;
+            continue;
+        }
+
+        if (!isset($keyIndex[$key])) {
+            $keyIndex[$key] = count($deduped);
+            $deduped[] = $routine;
+            continue;
+        }
+
+        $existingIndex = $keyIndex[$key];
+        $existing = $deduped[$existingIndex];
+        $existingScore = getRoutinePriorityScore($existing);
+        $newScore = getRoutinePriorityScore($routine);
+
+        if ($newScore > $existingScore) {
+            $deduped[$existingIndex] = $routine;
+        }
+    }
+
+    return $deduped;
+}
+
+// Helper function to validate and display teacher name
+function getTeacherDisplayName(\mysqli $conn, string $teacherName): string {
+    $teacherName = trim((string)$teacherName);
+    if ($teacherName === '') {
+        return 'Not assigned yet';
+    }
+
+    $sql = "SELECT 1 FROM teachers WHERE status = 1 AND LOWER(CONCAT(TRIM(first_name), ' ', TRIM(last_name))) = LOWER(?) LIMIT 1";
+    $stmt = mysqli_prepare($conn, $sql);
+    if (!$stmt) {
+        return 'Not assigned yet';
+    }
+    mysqli_stmt_bind_param($stmt, 's', $teacherName);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $exists = $result && mysqli_num_rows($result) > 0;
+    mysqli_stmt_close($stmt);
+
+    return $exists ? htmlspecialchars($teacherName) : 'Not assigned yet';
+}
+
+// Helper function to get assigned subjects for student's class
+function getAssignedClassSubjectsForStudent(\mysqli $conn, int $classId, string $groupName = ''): array {
+    if ($classId <= 0) {
+        return [];
+    }
+
+    $hasClassIdColumn = false;
+    $columnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+    if ($columnCheck && mysqli_num_rows($columnCheck) > 0) {
+        $hasClassIdColumn = true;
+    }
+
+    $hasStreamColumn = false;
+    $streamCheck = mysqli_query($conn, "SHOW COLUMNS FROM subjects LIKE 'stream'");
+    if ($streamCheck && mysqli_num_rows($streamCheck) > 0) {
+        $hasStreamColumn = true;
+    }
+
+    $sql = "SELECT DISTINCT s.subject_name, CONCAT(TRIM(t.first_name), ' ', TRIM(t.last_name)) AS teacher_name
+            FROM teacher_subjects ts
+            JOIN subjects s ON ts.subject_id = s.id
+            JOIN teachers t ON ts.teacher_id = t.id AND t.status = 1
+            WHERE s.class_id = ?";
+
+    if ($hasClassIdColumn) {
+        $sql .= " AND ts.class_id = ?";
+    }
+
+    if ($hasStreamColumn && trim($groupName) !== '') {
+        $sql .= " AND LOWER(TRIM(s.stream)) = LOWER(TRIM(?))";
+    }
+
+    $sql .= " ORDER BY s.subject_name";
+
+    $stmt = mysqli_prepare($conn, $sql);
+    if (!$stmt) {
+        return [];
+    }
+
+    if ($hasClassIdColumn && $hasStreamColumn && trim($groupName) !== '') {
+        mysqli_stmt_bind_param($stmt, 'iis', $classId, $classId, $groupName);
+    } elseif ($hasClassIdColumn) {
+        mysqli_stmt_bind_param($stmt, 'ii', $classId, $classId);
+    } elseif ($hasStreamColumn && trim($groupName) !== '') {
+        mysqli_stmt_bind_param($stmt, 'is', $classId, $groupName);
+    } else {
+        mysqli_stmt_bind_param($stmt, 'i', $classId);
+    }
+
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $subjects = [];
+    while ($result && ($row = mysqli_fetch_assoc($result))) {
+        $subjects[] = [
+            'subject' => trim($row['subject_name'] ?? ''),
+            'teacher' => trim($row['teacher_name'] ?? '')
+        ];
+    }
+    mysqli_stmt_close($stmt);
+
+    return $subjects;
+}
 
 if (!empty($student_id)) {
     $admissionPhoneColumn = mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE 'mobile'");
@@ -51,6 +211,7 @@ if (!empty($student_id)) {
     $routine_student = mysqli_fetch_assoc($routine_student_result);
 
     if ($routine_student) {
+        $student_class_id = intval($routine_student['class_id'] ?? 0);
         $student_class_name = $routine_student['class_name'] ?? '';
         $student_group_name = $routine_student['group_name'] ?? '';
 
@@ -66,23 +227,63 @@ if (!empty($student_id)) {
             }
         }
 
-        if (!empty($class_number) && !empty($student_group_name)) {
-            $group_display = ucfirst(strtolower(trim($student_group_name)));
-            if (stripos($group_display, 'group') === false) {
-                $group_display .= ' Group';
+        // Build the class_group string to match with routine table
+        $alternate_class_group = '';
+        if (!empty($class_number)) {
+            $expected_class_group = $class_number;
+            if (!empty($student_group_name)) {
+                $expected_class_group .= ' — ' . $student_group_name;
             }
-            $expected_class_group = $class_number . ' — ' . $group_display;
+
+            // Also allow matching the alternate form with/without the suffix "Group".
+            if (!empty($student_group_name)) {
+                if (stripos($student_group_name, 'group') === false) {
+                    $alternate_class_group = $class_number . ' — ' . $student_group_name . ' Group';
+                } else {
+                    $alternate_class_group = $class_number . ' — ' . preg_replace('/\s+Group$/i', '', $student_group_name);
+                }
+            }
         }
     }
 }
 
 // Query routine from the routine table when child class/group is known
 if (!empty($expected_class_group)) {
-    $routine_query = "SELECT * FROM `routine` WHERE class_group = '" . mysqli_real_escape_string($conn, $expected_class_group) . "' "
-        . "ORDER BY FIELD(day, 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'), start_time";
+    $routine_query = "SELECT * FROM `routine` 
+                      WHERE class_group = '" . mysqli_real_escape_string($conn, $expected_class_group) . "'";
+    if (!empty($alternate_class_group) && $alternate_class_group !== $expected_class_group) {
+        $routine_query .= " OR class_group = '" . mysqli_real_escape_string($conn, $alternate_class_group) . "'";
+    }
+    $routine_query .= " ORDER BY FIELD(day, 'Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'), start_time";
     $routine_result = mysqli_query($conn, $routine_query);
     while ($routine = mysqli_fetch_assoc($routine_result)) {
         $class_routine[] = $routine;
+    }
+    $class_routine = dedupeStudentRoutine($class_routine);
+}
+
+// Append any assigned subjects for the student's class that are not yet part of the admin-defined routine
+$assignedSubjects = getAssignedClassSubjectsForStudent($conn, $student_class_id, $student_group_name);
+if (!empty($assignedSubjects)) {
+    $existingSubjects = array_map('normalizeText', array_column($class_routine, 'subject'));
+    foreach ($assignedSubjects as $assignedSubject) {
+        $subjectName = trim($assignedSubject['subject'] ?? '');
+        $teacherName = trim($assignedSubject['teacher'] ?? '');
+        if ($subjectName === '' || $teacherName === '') {
+            continue;
+        }
+        $normalizedSubjectName = normalizeText($subjectName);
+        if (in_array($normalizedSubjectName, $existingSubjects, true)) {
+            continue;
+        }
+        $class_routine[] = [
+            'day' => '',
+            'subject' => $subjectName,
+            'teacher' => $teacherName,
+            'room' => '',
+            'start_time' => '',
+            'end_time' => ''
+        ];
     }
 }
 
@@ -421,7 +622,7 @@ foreach ($upcoming_fees as $fee) {
         <!-- Sidebar -->
         <div class="sidebar">
             <div class="sidebar-header">
-                <h3>CoachingPro</h3>
+                <h3>Coaching</h3>
                 <small>Parent Portal</small>
             </div>
             
@@ -443,12 +644,6 @@ foreach ($upcoming_fees as $fee) {
                     <a href="fees.php">
                         <i class="fas fa-money-bill"></i>
                         Fees & Payments
-                    </a>
-                </li>
-                <li>
-                    <a href="../parent-discontinue.php" onclick="return confirm('Are you sure you want to remove this account permanently?');">
-                        <i class="fas fa-sign-out-alt"></i>
-                         discontinues enrollment 
                     </a>
                 </li>
                 <li>
@@ -586,27 +781,7 @@ foreach ($upcoming_fees as $fee) {
             </script>
 
 
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon orange"><i class="fas fa-money-bill"></i></div>
-                    <div class="stat-value">৳<?php echo number_format($total_pending, 2); ?></div>
-                    <div class="stat-label">Pending Fees</div>
-                    <div style="margin-top: 15px; font-size: 12px;">
-                        <div style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
-                            <?php foreach ($upcoming_fees as $fee): ?>
-                            <div style="display: flex; justify-content: space-between; margin: 5px 0;">
-                                <span style="color: #666;"><?php echo htmlspecialchars($fee['fee_month']); ?></span>
-                                <strong style="color: #f44336;">৳<?php echo number_format($fee['due_amount'], 2); ?></strong>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                    <div style="margin-top: 10px; text-align: center;">
-                        <small style="color: #999;">Next 2 Months</small>
-                    </div>
-                </div>
-            </div>
+           
 
             <div class="card p-4 mb-4">
                 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -635,7 +810,7 @@ foreach ($upcoming_fees as $fee) {
                                     <tr>
                                         <td><strong><?php echo htmlspecialchars($routine_item['day'] ?? 'N/A'); ?></strong></td>
                                         <td><?php echo htmlspecialchars($routine_item['subject'] ?? 'N/A'); ?></td>
-                                        <td><?php echo htmlspecialchars($routine_item['teacher'] ?? 'N/A'); ?></td>
+                                        <td><?php echo getTeacherDisplayName($conn, $routine_item['teacher'] ?? ''); ?></td>
                                         <td><span class="badge bg-info"><?php echo htmlspecialchars($routine_item['room'] ?? 'N/A'); ?></span></td>
                                         <td>
                                             <?php 
@@ -661,10 +836,7 @@ foreach ($upcoming_fees as $fee) {
             <div class="quick-links">
                 <h5><i class="fas fa-star me-2"></i>Quick Access</h5>
                 <div class="links-grid">
-                    <a href="attendance.php" class="quick-link">
-                        <i class="fas fa-calendar-check"></i>
-                        <span>Check Attendance</span>
-                    </a>
+                    
                     <a href="results.php" class="quick-link">
                         <i class="fas fa-chart-bar"></i>
                         <span>View Results</span>

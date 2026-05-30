@@ -64,6 +64,111 @@ function isRegisteredTeacher(mysqli $conn, string $teacher): bool {
     return findRegisteredTeacherName($conn, $teacher) !== '';
 }
 
+function findTeacherIdByName(mysqli $conn, string $teacher): int {
+    $teacher = normalizeTeacherName($teacher);
+    if ($teacher === '') {
+        return 0;
+    }
+
+    $sql = "SELECT id FROM teachers WHERE status = 1 AND LOWER(CONCAT(TRIM(first_name), ' ', TRIM(last_name))) = LOWER(?) LIMIT 1";
+    $stmt = mysqli_prepare($conn, $sql);
+    if (!$stmt) {
+        return 0;
+    }
+    mysqli_stmt_bind_param($stmt, 's', $teacher);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $id = 0;
+    if ($result && ($row = mysqli_fetch_assoc($result))) {
+        $id = intval($row['id']);
+    }
+    mysqli_stmt_close($stmt);
+    return $id;
+}
+
+function findSubjectIdByNameAndClass(mysqli $conn, string $subject, int $classId): int {
+    $subject = trim(preg_replace('/\s+/', ' ', $subject));
+    if ($subject === '' || $classId <= 0) {
+        return 0;
+    }
+
+    $sql = "SELECT id FROM subjects WHERE class_id = ? AND LOWER(TRIM(subject_name)) = LOWER(TRIM(?)) LIMIT 1";
+    $stmt = mysqli_prepare($conn, $sql);
+    if (!$stmt) {
+        return 0;
+    }
+    mysqli_stmt_bind_param($stmt, 'is', $classId, $subject);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $id = 0;
+    if ($result && ($row = mysqli_fetch_assoc($result))) {
+        $id = intval($row['id']);
+    }
+    mysqli_stmt_close($stmt);
+    return $id;
+}
+
+function isTeacherAssignedToSubjectAndClass(mysqli $conn, string $teacher, string $subject, string $classGroup): bool {
+    $teacherId = findTeacherIdByName($conn, $teacher);
+    if ($teacherId <= 0) {
+        return false;
+    }
+
+    $className = extractClassNameFromGroup($classGroup);
+    if ($className === '') {
+        return false;
+    }
+
+    $classId = 0;
+    $stmt = mysqli_prepare($conn, "SELECT id FROM classes WHERE LOWER(TRIM(class_name)) = LOWER(TRIM(?)) LIMIT 1");
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, 's', $className);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        if ($result && ($row = mysqli_fetch_assoc($result))) {
+            $classId = intval($row['id']);
+        }
+        mysqli_stmt_close($stmt);
+    }
+
+    if ($classId <= 0) {
+        return false;
+    }
+
+    $subjectId = findSubjectIdByNameAndClass($conn, $subject, $classId);
+    if ($subjectId <= 0) {
+        return false;
+    }
+
+    $hasClassIdColumn = false;
+    $columnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+    if ($columnCheck && mysqli_num_rows($columnCheck) > 0) {
+        $hasClassIdColumn = true;
+    }
+
+    $sql = "SELECT id FROM teacher_subjects WHERE teacher_id = ? AND subject_id = ?";
+    if ($hasClassIdColumn) {
+        $sql .= " AND class_id = ?";
+    }
+    $sql .= " LIMIT 1";
+
+    $stmt = mysqli_prepare($conn, $sql);
+    if (!$stmt) {
+        return false;
+    }
+
+    if ($hasClassIdColumn) {
+        mysqli_stmt_bind_param($stmt, 'iii', $teacherId, $subjectId, $classId);
+    } else {
+        mysqli_stmt_bind_param($stmt, 'ii', $teacherId, $subjectId);
+    }
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $assigned = $result && mysqli_num_rows($result) > 0;
+    mysqli_stmt_close($stmt);
+    return $assigned;
+}
+
 function extractClassNameFromGroup(string $classGroup): string {
     $parts = preg_split('/\s*[–—-]\s*/u', $classGroup);
     return isset($parts[0]) ? trim($parts[0]) : trim($classGroup);
@@ -325,58 +430,124 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
         }
         $room = $_POST['room'];
         
-        // Validate teacher -> subject stream eligibility
-        $conflicts = [];
-        $streamError = isSubjectAllowedForTeacher($conn, $teacher, $subject);
-        if ($streamError !== null) {
-            $conflicts[] = $streamError;
+        // Determine class, subject and teacher IDs for assignment validation
+        $className = extractClassNameFromGroup($class_group);
+        $classId = 0;
+        if ($className !== '') {
+            $stmt = mysqli_prepare($conn, "SELECT id FROM classes WHERE LOWER(TRIM(class_name)) = LOWER(TRIM(?)) LIMIT 1");
+            if ($stmt) {
+                mysqli_stmt_bind_param($stmt, 's', $className);
+                mysqli_stmt_execute($stmt);
+                $result = mysqli_stmt_get_result($stmt);
+                if ($result && ($row = mysqli_fetch_assoc($result))) {
+                    $classId = intval($row['id']);
+                }
+                mysqli_stmt_close($stmt);
+            }
         }
-        
-        // Conflict check: teacher already teaching elsewhere with overlapping time on the same day
-        $check_sql = "SELECT * FROM `routine` WHERE id != ? AND day = ? AND teacher = ? AND NOT (end_time <= ? OR start_time >= ?)";
-        $stmt = mysqli_prepare($conn, $check_sql);
-        mysqli_stmt_bind_param($stmt, 'issss', $id, $day, $teacher, $start_time, $end_time);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        if (mysqli_num_rows($result) > 0) {
-            $conflicts[] = "Teacher '$teacher' already has another class that overlaps this time on the same day.";
-        }
-        mysqli_stmt_close($stmt);
-        
-        // Conflict check: room already booked with overlapping time on the same day
-        $room_check_sql = "SELECT * FROM `routine` WHERE id != ? AND day = ? AND room = ? AND NOT (end_time <= ? OR start_time >= ?)";
-        $stmt = mysqli_prepare($conn, $room_check_sql);
-        mysqli_stmt_bind_param($stmt, 'issss', $id, $day, $room, $start_time, $end_time);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        if (mysqli_num_rows($result) > 0) {
-            $conflicts[] = "Room '$room' is already booked during an overlapping time period on this day.";
-        }
-        mysqli_stmt_close($stmt);
 
-        // Conflict check: same class_group, day and start_time must remain unique
-        $slot_check_sql = "SELECT * FROM `routine` WHERE id != ? AND class_group = ? AND day = ? AND start_time = ?";
-        $stmt = mysqli_prepare($conn, $slot_check_sql);
-        mysqli_stmt_bind_param($stmt, 'isss', $id, $class_group, $day, $start_time);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        if (mysqli_num_rows($result) > 0) {
-            $conflicts[] = "Another routine entry already exists for this class/group on $day at " . date('g:i A', strtotime($start_time)) . ".";
+        $subjectId = findSubjectIdByNameAndClass($conn, $subject, $classId);
+        $teacherId = findTeacherIdByName($conn, $teacher);
+        $hasClassIdColumn = false;
+        $columnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+        if ($columnCheck && mysqli_num_rows($columnCheck) > 0) {
+            $hasClassIdColumn = true;
         }
-        mysqli_stmt_close($stmt);
-        
-        if (!empty($conflicts)) {
-            $editError = "Conflict(s) detected!<br>" . implode("<br>", $conflicts) . "<br>Please resolve manually.";
+
+        // Validate times: require whole-hour slots (minutes must be 00)
+        $editError = '';
+        $start_minutes = date('i', strtotime($start_time));
+        $end_minutes = date('i', strtotime($end_time));
+        if ($start_minutes !== '00' || $end_minutes !== '00') {
+            $suggest_start = date('H:00', strtotime($start_time));
+            $suggest_end = date('H:00', strtotime($end_time));
+            $editError = "Start and end times must be on whole hours (minutes should be 00). Suggested: $suggest_start - $suggest_end";
+        }
+
+        if ($editError === '') {
+            if ($teacherId <= 0 || $subjectId <= 0 || $classId <= 0) {
+                $editError = 'Unable to validate assignment: selected class, subject, or teacher is not recognized.';
+            } else {
+                $assignmentCheckSql = "SELECT id FROM teacher_subjects WHERE teacher_id = ? AND subject_id = ?";
+                if ($hasClassIdColumn) {
+                    $assignmentCheckSql .= " AND class_id = ?";
+                }
+                $assignmentCheckSql .= " LIMIT 1";
+
+                $stmt = mysqli_prepare($conn, $assignmentCheckSql);
+                if ($stmt) {
+                    if ($hasClassIdColumn) {
+                        mysqli_stmt_bind_param($stmt, 'iii', $teacherId, $subjectId, $classId);
+                    } else {
+                        mysqli_stmt_bind_param($stmt, 'ii', $teacherId, $subjectId);
+                    }
+                    mysqli_stmt_execute($stmt);
+                    $result = mysqli_stmt_get_result($stmt);
+                    if (!$result || mysqli_num_rows($result) === 0) {
+                        $editError = 'Selected teacher is not assigned to this subject for the selected class.';
+                    }
+                    mysqli_stmt_close($stmt);
+                }
+            }
+        }
+
+        // If time validation failed or class/subject/teacher assignment is invalid, skip further checks and show warning
+        if ($editError !== '') {
+            // No update performed; $editError will be rendered later in the page
         } else {
-            $update_sql = "UPDATE `routine` SET class_group=?, day=?, start_time=?, end_time=?, subject=?, teacher=?, room=? WHERE id=?";
-            $stmt = mysqli_prepare($conn, $update_sql);
-            mysqli_stmt_bind_param($stmt, 'sssssssi', $class_group, $day, $start_time, $end_time, $subject, $teacher, $room, $id);
+            // Validate teacher -> subject stream eligibility
+            $conflicts = [];
+            $streamError = isSubjectAllowedForTeacher($conn, $teacher, $subject);
+            if ($streamError !== null) {
+                $conflicts[] = $streamError;
+            }
+            
+            // Conflict check: teacher already teaching elsewhere with overlapping time on the same day
+            $check_sql = "SELECT * FROM `routine` WHERE id != ? AND day = ? AND teacher = ? AND NOT (end_time <= ? OR start_time >= ?)";
+            $stmt = mysqli_prepare($conn, $check_sql);
+            mysqli_stmt_bind_param($stmt, 'issss', $id, $day, $teacher, $start_time, $end_time);
             mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            if (mysqli_num_rows($result) > 0) {
+                $conflicts[] = "Teacher '$teacher' already has another class that overlaps this time on the same day.";
+            }
             mysqli_stmt_close($stmt);
-            $_SESSION['highlighted_routine_id'] = $id;
-            $_SESSION['routine_save_success'] = "Entry updated successfully.";
-            header("Location: routine-management.php");
-            exit;
+            
+            // Conflict check: room already booked with overlapping time on the same day
+            $room_check_sql = "SELECT * FROM `routine` WHERE id != ? AND day = ? AND room = ? AND NOT (end_time <= ? OR start_time >= ?)";
+            $stmt = mysqli_prepare($conn, $room_check_sql);
+            mysqli_stmt_bind_param($stmt, 'issss', $id, $day, $room, $start_time, $end_time);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            if (mysqli_num_rows($result) > 0) {
+                $conflicts[] = "Room '$room' is already booked during an overlapping time period on this day.";
+            }
+            mysqli_stmt_close($stmt);
+
+            // Conflict check: same class_group, day and start_time must remain unique
+            $slot_check_sql = "SELECT * FROM `routine` WHERE id != ? AND class_group = ? AND day = ? AND start_time = ?";
+            $stmt = mysqli_prepare($conn, $slot_check_sql);
+            mysqli_stmt_bind_param($stmt, 'isss', $id, $class_group, $day, $start_time);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            if (mysqli_num_rows($result) > 0) {
+                $conflicts[] = "Another routine entry already exists for this class/group on $day at " . date('g:i A', strtotime($start_time)) . ".";
+            }
+            mysqli_stmt_close($stmt);
+            
+            if (!empty($conflicts)) {
+                $editError = "Conflict(s) detected!<br>" . implode("<br>", $conflicts) . "<br>Please resolve manually.";
+            } else {
+                $update_sql = "UPDATE `routine` SET class_group=?, day=?, start_time=?, end_time=?, subject=?, teacher=?, room=? WHERE id=?";
+                $stmt = mysqli_prepare($conn, $update_sql);
+                mysqli_stmt_bind_param($stmt, 'sssssssi', $class_group, $day, $start_time, $end_time, $subject, $teacher, $room, $id);
+                mysqli_stmt_execute($stmt);
+                mysqli_stmt_close($stmt);
+                $_SESSION['highlighted_routine_id'] = $id;
+                $_SESSION['routine_save_success'] = "Entry updated successfully.";
+                header("Location: routine-management.php");
+                exit;
+            }
         }
     }
 
@@ -387,7 +558,9 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
         $group_id = intval($_POST['group_id'] ?? 0);
         $subject_id = intval($_POST['subject_id'] ?? 0);
         $new_subject_name = trim($_POST['new_subject_name'] ?? '');
+        // Accept either a teacher ID (from select) or a teacher name (from text input)
         $teacher_id = intval($_POST['teacher_id'] ?? 0);
+        $submitted_teacher_text = trim($_POST['teacher'] ?? '');
         $day = mysqli_real_escape_string($conn, trim($_POST['day'] ?? ''));
         $start_time = mysqli_real_escape_string($conn, trim($_POST['start_time'] ?? ''));
         $end_time = mysqli_real_escape_string($conn, trim($_POST['end_time'] ?? ''));
@@ -410,7 +583,30 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
                 $group_name = trim($groupRow['group_name']);
             }
         }
-        if ($teacher_id > 0) {
+        // If a teacher text was provided, try resolving it to a registered name/id
+        if ($submitted_teacher_text !== '') {
+            // If user entered a numeric id, prefer that
+            if (ctype_digit($submitted_teacher_text)) {
+                $teacher_id = intval($submitted_teacher_text);
+            }
+            if ($teacher_id > 0) {
+                $teacherResult = mysqli_query($conn, "SELECT CONCAT(TRIM(first_name), ' ', TRIM(last_name)) AS full_name FROM teachers WHERE id = $teacher_id AND status = 1 LIMIT 1");
+                if ($teacherResult && ($teacherRow = mysqli_fetch_assoc($teacherResult))) {
+                    $teacher_name = trim($teacherRow['full_name']);
+                }
+            }
+            // If still no resolved name, try resolving by provided name text
+            if ($teacher_name === '') {
+                $resolved = findRegisteredTeacherName($conn, $submitted_teacher_text);
+                if ($resolved !== '') {
+                    $teacher_name = $resolved;
+                    $teacher_id = findTeacherIdByName($conn, $teacher_name);
+                } else {
+                    // treat the entered text as the teacher name (will fail eligibility if not registered)
+                    $teacher_name = $submitted_teacher_text;
+                }
+            }
+        } elseif ($teacher_id > 0) {
             $teacherResult = mysqli_query($conn, "SELECT CONCAT(TRIM(first_name), ' ', TRIM(last_name)) AS full_name FROM teachers WHERE id = $teacher_id AND status = 1 LIMIT 1");
             if ($teacherResult && ($teacherRow = mysqli_fetch_assoc($teacherResult))) {
                 $teacher_name = trim($teacherRow['full_name']);
@@ -500,10 +696,27 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
         if ($class_group === '' || $subject_name === '' || $teacher_name === '' || $day === '' || $start_time === '' || $end_time === '' || $room === '') {
             $addError = 'Please fill in all add-routine fields correctly.';
         } else {
-            $eligibility_query = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id LIMIT 1";
+            // Validate times: require whole-hour slots (minutes must be 00)
+            $start_minutes = date('i', strtotime($start_time));
+            $end_minutes = date('i', strtotime($end_time));
+            if ($start_minutes !== '00' || $end_minutes !== '00') {
+                $suggest_start = date('H:00', strtotime($start_time));
+                $suggest_end = date('H:00', strtotime($end_time));
+                $addError = "Start and end times must be on whole hours (minutes should be 00). Suggested: $suggest_start - $suggest_end";
+            }
+
+            $classIdCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
+            $hasClassIdColumn = ($classIdCheck && mysqli_num_rows($classIdCheck) > 0);
+
+            $eligibility_query = "SELECT id FROM teacher_subjects WHERE teacher_id = $teacher_id AND subject_id = $subject_id";
+            if ($hasClassIdColumn && $class_id > 0) {
+                $eligibility_query .= " AND class_id = $class_id";
+            }
+            $eligibility_query .= " LIMIT 1";
+
             $eligibility_result = mysqli_query($conn, $eligibility_query);
             if (!$eligibility_result || mysqli_num_rows($eligibility_result) === 0) {
-                $addError = 'Error: Selected teacher is not assigned to the selected subject.';
+                $addError = 'Error: Selected teacher is not assigned to this subject for the selected class.';
             } else {
                 $check_sql = "SELECT * FROM `routine` WHERE day = ? AND teacher = ? AND NOT (end_time <= ? OR start_time >= ?)";
                 $stmt = mysqli_prepare($conn, $check_sql);
@@ -774,13 +987,13 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
                 <small style="color:#666; font-size:12px; display:block; margin-top:4px;">Leave blank to choose an existing subject.</small>
             </div>
             <div>
-                <label for="teacher_id">Teacher</label>
-                <select name="teacher_id" id="teacher_id" required>
-                    <option value="">Select teacher</option>
-                    <?php foreach ($teachersList as $row): ?>
-                        <option value="<?php echo intval($row['id']); ?>"><?php echo htmlspecialchars($row['full_name']); ?></option>
+                <label for="teacher">Teacher</label>
+                <input type="text" name="teacher" id="teacher" placeholder="Type teacher name or select from list" autocomplete="off" required list="teacherListAdd">
+                <datalist id="teacherListAdd">
+                    <?php foreach ($registeredTeachers as $t): ?>
+                        <option value="<?php echo htmlspecialchars($t); ?>">
                     <?php endforeach; ?>
-                </select>
+                </datalist>
             </div>
             <div>
                 <label for="day">Day</label>
@@ -837,7 +1050,8 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
                         <?php
                             $teacherRaw = trim($row['teacher'] ?? '');
                             $teacherResolved = findRegisteredTeacherName($conn, $teacherRaw);
-                            $teacherHtml = $teacherResolved === '' ? 'Not assigned' : htmlspecialchars($teacherResolved);
+                            $teacherValid = $teacherResolved !== '' && isTeacherAssignedToSubjectAndClass($conn, $teacherResolved, $row['subject'], $row['class_group']);
+                            $teacherHtml = $teacherValid ? htmlspecialchars($teacherResolved) : 'Not assigned';
                         ?>
                         <td><?php echo $teacherHtml; ?></td>
                         <td><?php echo htmlspecialchars($row['room']); ?></td>
@@ -847,7 +1061,7 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
                                     data-start="<?php echo $row['start_time']; ?>"
                                     data-end="<?php echo $row['end_time']; ?>"
                                     data-subject="<?php echo htmlspecialchars($row['subject']); ?>"
-                                    data-teacher="<?php echo htmlspecialchars($row['teacher']); ?>"
+                                    data-teacher="<?php echo htmlspecialchars($teacherValid ? $teacherResolved : ''); ?>"
                                     data-room="<?php echo htmlspecialchars($row['room']); ?>">✏️ Edit</button></td>
                     </tr>
                 <?php endforeach; ?>
@@ -872,7 +1086,8 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
                         <?php
                             $teacherRaw = trim($row['teacher'] ?? '');
                             $teacherResolved = findRegisteredTeacherName($conn, $teacherRaw);
-                            $teacherHtmlRow = $teacherResolved === '' ? 'Not assigned' : htmlspecialchars($teacherResolved);
+                            $teacherValid = $teacherResolved !== '' && isTeacherAssignedToSubjectAndClass($conn, $teacherResolved, $row['subject'], $row['class_group']);
+                            $teacherHtmlRow = $teacherValid ? htmlspecialchars($teacherResolved) : 'Not assigned';
                         ?>
                         <tr class="highlighted-row">
                             <td><?php echo $row['id']; ?></td>
@@ -899,31 +1114,31 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
         <form method="post" id="editForm">
             <input type="hidden" name="edit_id" id="edit_id">
             <label>Class & Group</label>
-            <select name="class_group" id="class_group" required>
+            <select name="class_group" id="edit_class_group" required>
                 <?php foreach ($classGroups as $cg): ?>
                     <option value="<?php echo htmlspecialchars($cg); ?>"><?php echo htmlspecialchars($cg); ?></option>
                 <?php endforeach; ?>
             </select>
             <label>Day</label>
-            <select name="day" id="day" required>
+            <select name="day" id="edit_day" required>
                 <option>Saturday</option><option>Sunday</option><option>Monday</option>
                 <option>Tuesday</option><option>Wednesday</option><option>Thursday</option>
             </select>
             <label>Start Time</label>
-            <input type="time" name="start_time" id="start_time" required>
+            <input type="time" name="start_time" id="edit_start_time" required>
             <label>End Time</label>
-            <input type="time" name="end_time" id="end_time" required>
+            <input type="time" name="end_time" id="edit_end_time" required>
             <label>Subject</label>
-            <input type="text" name="subject" id="subject" required>
+            <input type="text" name="subject" id="edit_subject" required>
             <label>Teacher</label>
-            <input type="text" name="teacher" id="teacher" required list="teacherList">
+            <input type="text" name="teacher" id="edit_teacher" required list="teacherList">
             <datalist id="teacherList">
                 <?php foreach ($registeredTeachers as $t): ?>
                     <option value="<?php echo htmlspecialchars($t); ?>">
                 <?php endforeach; ?>
             </datalist>
             <label>Room</label>
-            <input type="text" name="room" id="room" required>
+            <input type="text" name="room" id="edit_room" required>
             <button type="submit">💾 Save Changes</button>
             <button type="button" class="close-modal" style="background:#95a5a6;">Cancel</button>
         </form>
@@ -940,15 +1155,14 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
     
     function openModal(data) {
         document.getElementById('edit_id').value = data.id;
-        document.getElementById('class_group').value = data.class_group;
-        document.getElementById('day').value = data.day;
-        document.getElementById('start_time').value = data.start_time;
-        document.getElementById('end_time').value = data.end_time;
-        document.getElementById('subject').value = data.subject;
-        document.getElementById('teacher').value = '';
-        document.getElementById('room').value = data.room;
+        document.getElementById('edit_class_group').value = data.class_group;
+        document.getElementById('edit_day').value = data.day;
+        document.getElementById('edit_start_time').value = data.start_time;
+        document.getElementById('edit_end_time').value = data.end_time;
+        document.getElementById('edit_subject').value = data.subject;
+        document.getElementById('edit_teacher').value = data.teacher;
+        document.getElementById('edit_room').value = data.room;
         modal.style.display = 'flex';
-        autoFillTeacher();
     }
     
     editButtons.forEach(btn => {
@@ -993,9 +1207,9 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
     }
 
     function autoFillTeacher() {
-        const classGroup = document.getElementById('class_group').value;
-        const subject = document.getElementById('subject').value.trim();
-        const teacherInput = document.getElementById('teacher');
+        const classGroup = document.getElementById('edit_class_group').value;
+        const subject = document.getElementById('edit_subject').value.trim();
+        const teacherInput = document.getElementById('edit_teacher');
 
         if (!classGroup || !subject || !teacherInput) {
             return;
@@ -1022,8 +1236,8 @@ function isSubjectAllowedForTeacher(mysqli $conn, string $teacher, string $subje
         xhr.send();
     }
 
-    document.getElementById('subject').addEventListener('change', autoFillTeacher);
-    document.getElementById('class_group').addEventListener('change', autoFillTeacher);
+    document.getElementById('edit_subject').addEventListener('change', autoFillTeacher);
+    document.getElementById('edit_class_group').addEventListener('change', autoFillTeacher);
     
     // --- Dynamic filtering for Add Routine form ---
     (function() {

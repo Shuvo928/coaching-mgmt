@@ -26,10 +26,12 @@ if(isset($_POST['collect_fee'])) {
         $new_paid = $fee['paid_amount'] + $paying_amount;
         $new_due = $fee['amount'] - $new_paid;
         $status = $new_due <= 0 ? 'Paid' : ($new_paid > 0 ? 'Partial' : 'Unpaid');
+        $payment_status = strtolower($status);
         
         $update_query = "UPDATE fee_collections SET 
                          paid_amount = $new_paid,
                          due_amount = $new_due,
+                         payment_status = '$payment_status',
                          status = '$status',
                          payment_date = '$payment_date',
                          payment_method = '$payment_method',
@@ -56,16 +58,17 @@ if(isset($_POST['collect_fee'])) {
         $total_amount = $fee_amount['amount'];
         $due_amount = $total_amount - $paying_amount;
         $status = $due_amount <= 0 ? 'Paid' : 'Partial';
+        $payment_status = strtolower($status);
         
         // Generate receipt number
         $receipt_no = 'RCP-' . date('Ymd') . '-' . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
         
         $insert_query = "INSERT INTO fee_collections 
                          (student_id, fee_head_id, amount, paid_amount, due_amount, 
-                          payment_date, payment_method, receipt_no, status, remarks) 
+                          payment_status, status, payment_date, payment_method, receipt_no, remarks) 
                          VALUES 
                          ($student_id, $fee_head_id, $total_amount, $paying_amount, $due_amount,
-                          '$payment_date', '$payment_method', '$receipt_no', '$status', '$remarks')";
+                          '$payment_status', '$status', '$payment_date', '$payment_method', '$receipt_no', '$remarks')";
         
         if(mysqli_query($conn, $insert_query)) {
             $_SESSION['success'] = "Fee collected successfully! Receipt No: $receipt_no";

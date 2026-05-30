@@ -46,7 +46,7 @@ if(isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     exit();
 }
 
-// Handle Status Toggle
+// Handle Status Active/Inactive student table
 if(isset($_GET['toggle']) && is_numeric($_GET['toggle'])) {
     $student_id = $_GET['toggle'];
     $query = "UPDATE students SET status = NOT status WHERE id = $student_id";
@@ -55,8 +55,24 @@ if(isset($_GET['toggle']) && is_numeric($_GET['toggle'])) {
     exit();
 }
 
-// Get all students with class info
-$query = "SELECT s.*, c.class_name
+$hasProgramColumn = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'program'")) > 0;
+$hasGroupNameColumn = mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM students LIKE 'group_name'")) > 0;
+
+if ($hasProgramColumn) {
+    if ($hasGroupNameColumn) {
+        $programExpression = "COALESCE(NULLIF(s.program, ''), CONCAT(c.class_name, IF(s.group_name IS NOT NULL AND s.group_name <> '', CONCAT(' - ', s.group_name), '')), 'N/A') AS program_display";
+    } else {
+        $programExpression = "COALESCE(NULLIF(s.program, ''), c.class_name, 'N/A') AS program_display";
+    }
+} else {
+    if ($hasGroupNameColumn) {
+        $programExpression = "COALESCE(CONCAT(c.class_name, IF(s.group_name IS NOT NULL AND s.group_name <> '', CONCAT(' - ', s.group_name), '')), 'N/A') AS program_display";
+    } else {
+        $programExpression = "COALESCE(c.class_name, 'N/A') AS program_display";
+    }
+}
+
+$query = "SELECT s.*, c.class_name, $programExpression
           FROM students s
           LEFT JOIN classes c ON s.class_id = c.id
           ORDER BY s.id DESC";
@@ -405,7 +421,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
         <div class="sidebar">
             <div class="sidebar-header">
                 <i class="fas fa-graduation-cap fa-3x"></i>
-                <h3>CoachingPro</h3>
+                <h3>Coaching</h3>
                 <small>Admin Panel</small>
             </div>
             
@@ -434,10 +450,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
     <i class="fas fa-calendar-alt"></i>
     <span>Routine Management</span>
 </a>
-                <a href="parent-discontinue-requests.php" class="menu-item">
-                    <i class="fas fa-user-slash"></i>
-                    <span>Discontinue Requests</span>
-                </a>
                 
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
@@ -447,7 +459,10 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
                 </a>
-
+                <a href="home-video.php" class="menu-item">
+                    <i class="fas fa-video"></i>
+                    <span>Homepage Video</span>
+                </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
                     <span>Logout</span>
@@ -470,14 +485,14 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                             <img src="https://ui-avatars.com/api/?name=<?php echo $_SESSION['display_name']; ?>&background=2a5298&color=fff" alt="User" style="width: 35px; height: 35px; border-radius: 50%;">
                         </button>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
+                           
                             <li><a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
                         </ul>
                     </div>
                 </div>
             </div>
 
-            <!-- Alert Messages -->
+            <!-- student added successfully message show in top -->
             <?php if(isset($_SESSION['success'])): ?>
                 <div class="alert alert-success alert-dismissible fade show" role="alert">
                     <i class="fas fa-check-circle me-2"></i>
@@ -520,7 +535,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                 <th>ID</th>
                                 <th>Photo</th>
                                 <th>Name</th>
-                                <th>Class</th>
+                                <th>Program</th>
                                 <th>Phone</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -542,7 +557,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo $row['first_name'] . ' ' . $row['last_name']; ?></td>
-                                <td><?php echo $row['class_name'] ? htmlspecialchars($row['class_name']) : 'N/A'; ?></td>
+                                <td><?php echo htmlspecialchars($row['program_display']); ?></td>
                                 <td><?php echo $row['phone'] ?? 'N/A'; ?></td>
                                 <td>
                                     <span class="status-badge <?php echo $row['status'] ? 'active' : 'inactive'; ?>">

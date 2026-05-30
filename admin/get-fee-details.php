@@ -23,7 +23,7 @@ if(isset($_POST['id'])) {
     ?>
     <div class="receipt" id="receipt">
         <div class="receipt-header">
-            <h4>CoachingPro</h4>
+            <h4>Coaching</h4>
             <p>Fee Payment Receipt</p>
         </div>
         

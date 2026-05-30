@@ -126,6 +126,22 @@ if(isset($_POST['submit'])) {
     $assigned_subjects = mysqli_real_escape_string($conn, $_POST['assigned_subjects']);
     $submitted_class_names = mysqli_real_escape_string($conn, $_POST['class_names'] ?? '');
     $class_ids_raw = $_POST['class_id'] ?? [];
+    $joining_date = $_POST['joining_date'];
+    $address = mysqli_real_escape_string($conn, $_POST['address']);
+    $username = mysqli_real_escape_string($conn, $_POST['username']);
+    $password = $_POST['password'];
+
+    // Ensure unique username for the account
+    $existingUserQuery = "SELECT id FROM users WHERE username = '$username'";
+    if(!empty($teacher_id)) {
+        $existingUserQuery .= " AND id <> (SELECT user_id FROM teachers WHERE id = " . intval($teacher_id) . ")";
+    }
+    $existingUserResult = mysqli_query($conn, $existingUserQuery);
+    if($existingUserResult && mysqli_num_rows($existingUserResult) > 0) {
+        $_SESSION['error'] = 'The username is already in use. Please choose a different username.';
+        header('Location: teacher-management.php');
+        exit();
+    }
     if (!is_array($class_ids_raw)) {
         $class_ids_raw = array_filter(array_map('trim', explode(',', $class_ids_raw)));
     }
@@ -193,6 +209,7 @@ if(isset($_POST['submit'])) {
         // Start transaction
         mysqli_begin_transaction($conn);
         
+        $createdUserId = 0;
         try {
             // Insert into users table
             $hashed_password = password_hash($password, PASSWORD_DEFAULT);
@@ -200,10 +217,11 @@ if(isset($_POST['submit'])) {
                           VALUES ('$username', '$hashed_password', '$email', 'teacher', 1)";
             
             if(!mysqli_query($conn, $user_query)) {
-                throw new Exception("Error creating user account");
+                throw new Exception("Error creating user account: " . mysqli_error($conn));
             }
             
             $user_id = mysqli_insert_id($conn);
+            $createdUserId = intval($user_id);
             
             // Insert into teachers table - conditionally include teacher_id, class_id/class_name, and assigned_subjects columns
             global $teacherIdColumnExists, $assignedSubjectsColumnExists;
@@ -231,7 +249,7 @@ if(isset($_POST['submit'])) {
             $teacher_query = "INSERT INTO teachers ($columns) VALUES ($values)";
             
             if(!mysqli_query($conn, $teacher_query)) {
-                throw new Exception("Error adding teacher details");
+                throw new Exception("Error adding teacher details: " . mysqli_error($conn));
             }
 
             $inserted_teacher_id = mysqli_insert_id($conn);
@@ -305,6 +323,9 @@ if(isset($_POST['submit'])) {
             
         } catch(Exception $e) {
             mysqli_rollback($conn);
+            if(!empty($createdUserId)) {
+                mysqli_query($conn, "DELETE FROM users WHERE id = " . intval($createdUserId));
+            }
             $_SESSION['error'] = "Error: " . $e->getMessage();
         }
         
@@ -350,8 +371,12 @@ if(isset($_POST['submit'])) {
         
         if(mysqli_query($conn, $update_query)) {
             // Update username in users table
-            mysqli_query($conn, "UPDATE users SET username = '$username', email = '$email' 
-                                 WHERE id = (SELECT user_id FROM teachers WHERE id = $teacher_id)");
+            if(!mysqli_query($conn, "UPDATE users SET username = '$username', email = '$email' 
+                                 WHERE id = (SELECT user_id FROM teachers WHERE id = $teacher_id)")) {
+                $_SESSION['error'] = 'Error updating teacher username: ' . mysqli_error($conn);
+                header('Location: teacher-management.php');
+                exit();
+            }
             
             // Update password if provided
             if(!empty($password)) {

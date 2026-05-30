@@ -6,7 +6,16 @@ require_once '../includes/db.php';
 $teacherSubjectsClassIdColumnCheck = mysqli_query($conn, "SHOW COLUMNS FROM teacher_subjects LIKE 'class_id'");
 $teacherSubjectsClassIdColumnExists = ($teacherSubjectsClassIdColumnCheck && mysqli_num_rows($teacherSubjectsClassIdColumnCheck) > 0);
 
-function autoAssignPreferredSubjects($conn, $teacher_id, $assigned_subjects, $class_ids = null) {
+/**
+ * Auto-assign preferred subjects for a teacher based on a free-text list.
+ *
+ * @param \mysqli $conn MySQLi connection object
+ * @param int $teacher_id Teacher database ID
+ * @param string $assigned_subjects Comma/newline-separated preferred subject names
+ * @param int[]|null $class_ids Optional array of class IDs to constrain subject search
+ * @return void
+ */
+function autoAssignPreferredSubjects(\mysqli $conn, int $teacher_id, string $assigned_subjects, ?array $class_ids = null): void {
     global $teacherSubjectsClassIdColumnExists;
 
     $assigned_subjects = trim($assigned_subjects);

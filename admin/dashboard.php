@@ -46,7 +46,6 @@ $unpaid_admission = mysqli_fetch_assoc(
 )['total'] ?? 0;
 
 $stats['pending_fees'] = $unpaid_monthly + $unpaid_admission;
-$stats['discontinue_requests'] = getPendingParentDiscontinueRequestCount($conn);
 $stats['pending_admissions'] = getPendingAdmissionsCount($conn);
 
 // Monthly Income = (Paid Admission Fees) + (Paid Monthly Fees) for current month
@@ -69,21 +68,8 @@ $paid_admission = mysqli_fetch_assoc($result)['total'] ?? 0;
 
 $stats['monthly_income'] = $paid_monthly + $paid_admission;
 
-// Today's Attendance
 $today = date('Y-m-d');
-$stmt = mysqli_prepare($conn, "SELECT COUNT(*) as total FROM attendance WHERE date = ? AND status = 'Present'");
-mysqli_stmt_bind_param($stmt, 's', $today);
-mysqli_stmt_execute($stmt);
-$result = mysqli_stmt_get_result($stmt);
-$stats['today_present'] = mysqli_fetch_assoc($result)['total'] ?? 0;
-
-// Upcoming Exams (next 7 days)
-$next_week = date('Y-m-d', strtotime('+7 days'));
-$stmt = mysqli_prepare($conn, "SELECT COUNT(*) as total FROM exam_routine WHERE exam_date BETWEEN ? AND ?");
-mysqli_stmt_bind_param($stmt, 'ss', $today, $next_week);
-mysqli_stmt_execute($stmt);
-$result = mysqli_stmt_get_result($stmt);
-$stats['upcoming_exams'] = mysqli_fetch_assoc($result)['total'] ?? 0;
+$stats['upcoming_exams'] = 0;
 
 // Handle deleting parent account
 if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_parent'])) {
@@ -175,7 +161,7 @@ if($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['set_credentials'])) {
     exit();
 }
 
-// Get approved admissions for parent management
+// after aprrove the 
 $query = "SELECT id, CONCAT(first_name, ' ', last_name) AS full_name, parent_name, parent_email, parent_phone, username FROM admission_applications WHERE status = 'Approved' ORDER BY id DESC";
 $admissions = mysqli_query($conn, $query);
 ?>
@@ -485,6 +471,7 @@ $admissions = mysqli_query($conn, $query);
                 <i class="fas fa-graduation-cap fa-3x"></i>
                 <h3>Coaching</h3>
                 <small>Admin Panel</small>
+                
             </div>
             
             <div class="sidebar-menu">
@@ -504,7 +491,6 @@ $admissions = mysqli_query($conn, $query);
                     <i class="fas fa-user-graduate"></i>
                     <span>Student Management</span>
                 </a>
-                 
                 <a href="teacher-management.php" class="menu-item">
                     <i class="fas fa-chalkboard-teacher"></i>
                     <span>Teacher Management</span>
@@ -515,11 +501,6 @@ $admissions = mysqli_query($conn, $query);
     <i class="fas fa-calendar-alt"></i>
     <span>Routine Management</span>
 </a>
-                <a href="parent-discontinue-requests.php" class="menu-item">
-                    <i class="fas fa-user-slash"></i>
-                    <span>Discontinue Requests</span>
-                </a>
-                
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>
@@ -527,6 +508,10 @@ $admissions = mysqli_query($conn, $query);
                 <a href="fees-management.php" class="menu-item">
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
+                </a>
+                <a href="home-video.php" class="menu-item">
+                    <i class="fas fa-video"></i>
+                    <span>Homepage Video</span>
                 </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
@@ -597,16 +582,6 @@ $admissions = mysqli_query($conn, $query);
                     </div>
                     <div class="stat-icon orange">
                         <i class="fas fa-school"></i>
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-info">
-                        <h3><?php echo $stats['discontinue_requests']; ?></h3>
-                        <p>Discontinue Requests</p>
-                    </div>
-                    <div class="stat-icon red">
-                        <i class="fas fa-bell"></i>
                     </div>
                 </div>
 
@@ -714,39 +689,7 @@ $admissions = mysqli_query($conn, $query);
             }
         }
 
-        // Initialize Attendance Chart
-        const attendanceCtx = document.getElementById('attendanceChart')?.getContext('2d');
-        if (attendanceCtx) {
-            new Chart(attendanceCtx, {
-                type: 'line',
-                data: {
-                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-                    datasets: [{
-                        label: 'Present',
-                        data: [65, 59, 80, 81, 56, 55, 70],
-                        borderColor: '#2a5298',
-                        backgroundColor: 'rgba(42, 82, 152, 0.1)',
-                        borderWidth: 2,
-                        fill: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top'
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true
-                        }
-                    }
-                }
-            });
-        }
+
     </script>
 </body>
 </html>

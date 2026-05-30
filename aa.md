@@ -21,4 +21,6 @@ oi info fetch kore nie asbe admission-management.php
 student management.php theke data nie get student.php rakhe---231 no line, search dibo insert_student, 546 no line id generation logic
 
 student-process.php---ei file sudhu student Id creation
+student added suucessfully- ei dhoroner sms dekhabe alert meesage
 
+student login logic - Login.php

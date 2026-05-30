@@ -436,10 +436,6 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
     <i class="fas fa-calendar-alt"></i>
     <span>Routine Management</span>
 </a>
-                <a href="parent-discontinue-requests.php" class="menu-item">
-                    <i class="fas fa-user-slash"></i>
-                    <span>Discontinue Requests</span>
-                </a>
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>
@@ -447,6 +443,10 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
                 <a href="fees-management.php" class="menu-item">
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
+                </a>
+                <a href="home-video.php" class="menu-item">
+                    <i class="fas fa-video"></i>
+                    <span>Homepage Video</span>
                 </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
@@ -469,10 +469,7 @@ $classes = mysqli_query($conn, "SELECT c.* FROM classes c ORDER BY c.class_name"
                         <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown">
                             <img src="https://ui-avatars.com/api/?name=<?php echo $_SESSION['display_name']; ?>&background=2a5298&color=fff" alt="User" style="width: 35px; height: 35px; border-radius: 50%;">
                         </button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-                            <li><a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
-                        </ul>
+                       
                     </div>
                 </div>
             </div>

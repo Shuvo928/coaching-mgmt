@@ -52,6 +52,10 @@ $fee_heads = mysqli_query($conn, "SELECT * FROM fees ORDER BY id");
 
 // Get classes
 $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
+
+$receipt_column_result = mysqli_query($conn, "SHOW COLUMNS FROM fee_collections LIKE 'receipt_no'");
+$has_receipt_column = $receipt_column_result && mysqli_num_rows($receipt_column_result) > 0;
+$receipt_field = $has_receipt_column ? 'fc.receipt_no,' : "'' AS receipt_no,";
 ?>
 
 <!DOCTYPE html>
@@ -493,7 +497,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
         <div class="sidebar">
             <div class="sidebar-header">
                 <i class="fas fa-graduation-cap fa-3x"></i>
-                <h3>CoachingPro</h3>
+                <h3>Coaching</h3>
                 <small>Admin Panel</small>
             </div>
             
@@ -522,10 +526,6 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
     <i class="fas fa-calendar-alt"></i>
     <span>Routine Management</span>
 </a>
-                <a href="parent-discontinue-requests.php" class="menu-item">
-                    <i class="fas fa-user-slash"></i>
-                    <span>Discontinue Requests</span>
-                </a>
                 <a href="result-system.php" class="menu-item">
                     <i class="fas fa-chart-bar"></i>
                     <span>Result System</span>
@@ -533,6 +533,10 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                 <a href="fees-management.php" class="menu-item active">
                     <i class="fas fa-file-invoice-dollar"></i>
                     <span>Fees Management</span>
+                </a>
+                <a href="home-video.php" class="menu-item">
+                    <i class="fas fa-video"></i>
+                    <span>Homepage Video</span>
                 </a>
                 <a href="logout.php" class="menu-item">
                     <i class="fas fa-sign-out-alt"></i>
@@ -556,10 +560,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                         <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown">
                             <img src="https://ui-avatars.com/api/?name=<?php echo $_SESSION['display_name']; ?>&background=2a5298&color=fff" alt="User" style="width: 35px; height: 35px; border-radius: 50%;">
                         </button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="#"><i class="fas fa-user me-2"></i>Profile</a></li>
-                            <li><a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
-                        </ul>
+                        
                     </div>
                 </div>
             </div>
@@ -668,7 +669,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                                     COUNT(DISTINCT CASE WHEN payment_status = 'paid' THEN student_id END) as paid_count,
                                                     COUNT(DISTINCT CASE WHEN payment_status != 'paid' THEN student_id END) as unpaid_count,
                                                     SUM(expected_amount) as total_expected,
-                                                    SUM(expected_amount) as total_collected,
+                                                    SUM(paid_amount) as total_collected,
                                                     SUM(expected_amount) - SUM(paid_amount) as total_pending
                                                     FROM fee_collections
                                                     WHERE fee_month LIKE '%{$next_month_label}%'";
@@ -811,19 +812,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                         </tr>
                                         <?php 
                                             endwhile;
-                                        else:
-                                        ?>
-                                        <tr>
-                                            <td colspan="9" class="text-center py-4 text-muted">
-                                                <i class="fas fa-inbox fa-2x mb-2"></i>
-                                                <?php if ($show_current_month_due): ?>
-                                                    <p>No due collections for <?php echo htmlspecialchars($current_month_label); ?></p>
-                                                <?php else: ?>
-                                                    <p>Due calculations begin after the 10th of <?php echo htmlspecialchars($current_month_label); ?>.</p>
-                                                <?php endif; ?>
-                                            </td>
-                                        </tr>
-                                        <?php endif; ?>
+                                        endif; ?>
                                     </tbody>
                                 </table>
                             </div>
@@ -840,14 +829,17 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                         <th>Total Amount</th>
                                         <th>Paid Amount</th>
                                         <th>Due Amount</th>
+                                        <th>Payment Date</th>
+                                        <th>Payment Method</th>
+                                        <th>Receipt No</th>
                                         <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php
-                                    // Get current month for dynamic filtering (next month for upcoming fees)
+                                    // Show only next month fees
                                     $next_month_label = date('F Y', strtotime('first day of next month'));
-                                    
+
                                     $monthly_fees = mysqli_query($conn, "SELECT 
                                                                           fc.student_id as id, 
                                                                           CONCAT(s.first_name, ' ', s.last_name) AS student_name, 
@@ -855,6 +847,9 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                                                           fc.fee_month,
                                                                           fc.expected_amount,
                                                                           fc.paid_amount,
+                                                                          fc.payment_date,
+                                                                          fc.payment_method,
+                                                                          {$receipt_field}
                                                                           fc.payment_status
                                                                           FROM fee_collections fc
                                                                           LEFT JOIN students s ON fc.student_id = s.id
@@ -873,6 +868,9 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                         <td class="amount">৳<?php echo number_format($student['expected_amount'] ?? 0, 2); ?></td>
                                         <td class="amount">৳<?php echo number_format($student['paid_amount'] ?? 0, 2); ?></td>
                                         <td class="amount">৳<?php echo number_format(($student['expected_amount'] - $student['paid_amount']) ?? 0, 2); ?></td>
+                                        <td><?php echo $student['payment_date'] ? date('d-m-Y', strtotime($student['payment_date'])) : 'N/A'; ?></td>
+                                        <td><?php echo htmlspecialchars($student['payment_method'] ?? 'N/A'); ?></td>
+                                        <td><?php echo htmlspecialchars($student['receipt_no'] ?? 'N/A'); ?></td>
                                         <td>
                                             <span class="status-badge <?php echo strtolower($student['payment_status'] ?? 'unpaid'); ?>">
                                                 <?php echo ucfirst($student['payment_status'] ?? 'Unpaid'); ?>
@@ -884,7 +882,7 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                                     else:
                                     ?>
                                     <tr>
-                                        <td colspan="9" class="text-center py-4 text-muted">
+                                        <td colspan="8" class="text-center py-4 text-muted">
                                             <i class="fas fa-inbox fa-2x mb-2"></i>
                                             <p>No students enrolled</p>
                                         </td>
@@ -1069,10 +1067,14 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Payment Method</label>
                                 <select class="form-select" name="payment_method" required>
-                                    <option value="Cash">Cash</option>
+                                    <option value="bKash">bKash</option>
+                                    <option value="Nagad">Nagad</option>
+                                    <option value="Upay">Upay</option>
+                                    <option value="SSLCommerz">SSLCommerz</option>
                                     <option value="Card">Card</option>
                                     <option value="Bank Transfer">Bank Transfer</option>
-                                    <option value="Online">Online Payment</option>
+                                    <option value="Cash">Cash</option>
+                                    <option value="Other">Other / Online</option>
                                 </select>
                             </div>
                         </div>
@@ -1232,12 +1234,23 @@ $classes = mysqli_query($conn, "SELECT * FROM classes ORDER BY class_name");
                 todayHighlight: true
             });
             
-            $('#dueTable, #monthlyDueTable').DataTable({
+            $('#dueTable').DataTable({
                 "pageLength": 25,
                 "ordering": true,
                 "info": true,
                 "searching": true,
                 "lengthChange": false
+            });
+
+            $('#monthlyDueTable').DataTable({
+                "pageLength": 25,
+                "ordering": true,
+                "info": true,
+                "searching": true,
+                "lengthChange": false,
+                "language": {
+                    "emptyTable": "No due collections available for this month"
+                }
             });
         });
 

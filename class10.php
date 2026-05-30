@@ -135,83 +135,8 @@
         <span class="group-badge commerce">Commerce</span>
     </div>
 
-    <!-- Bangla Card -->
-    <div class="card">
-        <h2>📘 Bangla (1st & 2nd Paper Combined)</h2>
-        <p class="time">⏰ Time: 2:20 PM – 4:20 PM (2 Hours)</p>
-        <table>
-            <tr>
-                <th>Day</th>
-                <th>Subject</th>
-                <th>Duration</th>
-                <th>Groups</th>
-            </tr>
-            <tr>
-                <td>Saturday</td>
-                <td>Bangla 1st Paper + Bangla 2nd Paper</td>
-                <td>2 Hours</td>
-                <td>All Groups</td>
-            </tr>
-            <tr>
-                <td>Monday</td>
-                <td>Bangla 1st Paper + Bangla 2nd Paper</td>
-                <td>2 Hours</td>
-                <td>All Groups</td>
-            </tr>
-        </table>
-    </div>
-
-    <!-- English Card -->
-    <div class="card">
-        <h2>📗 English (1st & 2nd Paper Combined)</h2>
-        <p class="time">⏰ Time: 2:20 PM – 4:20 PM (2 Hours)</p>
-        <table>
-            <tr>
-                <th>Day</th>
-                <th>Subject</th>
-                <th>Duration</th>
-                <th>Groups</th>
-            </tr>
-            <tr>
-                <td>Sunday</td>
-                <td>English 1st Paper + English 2nd Paper</td>
-                <td>2 Hours</td>
-                <td>All Groups</td>
-            </tr>
-            <tr>
-                <td>Tuesday</td>
-                <td>English 1st Paper + English 2nd Paper</td>
-                <td>2 Hours</td>
-                <td>All Groups</td>
-            </tr>
-        </table>
-    </div>
-
-    <!-- Mathematics & ICT Card -->
-    <div class="card">
-        <h2>📙 General Mathematics & ICT (Combined Class)</h2>
-        <p class="time">⏰ Time: 2:20 PM – 4:20 PM (2 Hours)</p>
-        <table>
-            <tr>
-                <th>Day</th>
-                <th>Subject</th>
-                <th>Duration</th>
-                <th>Groups</th>
-            </tr>
-            <tr>
-                <td>Wednesday</td>
-                <td>General Mathematics</td>
-                <td>2 Hours</td>
-                <td>All Groups</td>
-            </tr>
-            <tr>
-                <td>Thursday</td>
-                <td>ICT</td>
-                <td>2 Hours</td>
-                <td>All Groups</td>
-            </tr>
-        </table>
-    </div>
+   
+ 
 
     <!-- Science Group Extra Subjects -->
     <div class="card">
@@ -325,59 +250,6 @@
                 <td>Monday, Thursday</td>
                 <td>Entrepreneurship</td>
                 <td>5:45 PM – 6:45 PM</td>
-            </tr>
-        </table>
-    </div>
-
-    <!-- Weekly Summary -->
-    <div class="card">
-        <h2>📅 Weekly Class Summary</h2>
-        <table>
-            <tr>
-                <th>Day</th>
-                <th>2:20 PM - 4:20 PM</th>
-                <th>4:30 PM - 5:30 PM</th>
-                <th>5:45 PM - 6:45 PM</th>
-            </tr>
-            <tr>
-                <td><strong>Saturday</strong></td>
-                <td>Bangla (All)</td>
-                <td>Biology / History / Accounting</td>
-                <td>Economics</td>
-            </tr>
-            <tr>
-                <td><strong>Sunday</strong></td>
-                <td>English (All)</td>
-                <td>Physics / Geography / Business Studies</td>
-                <td>Higher Math / Social Work / Business Math</td>
-            </tr>
-            <tr>
-                <td><strong>Monday</strong></td>
-                <td>Bangla (All)</td>
-                <td>Chemistry / Civics / Finance</td>
-                <td>Islamic History / Entrepreneurship</td>
-            </tr>
-            <tr>
-                <td><strong>Tuesday</strong></td>
-                <td>English (All)</td>
-                <td>Physics / History / Accounting</td>
-                <td>Higher Math / Economics</td>
-            </tr>
-            <tr>
-                <td><strong>Wednesday</strong></td>
-                <td>Mathematics (All)</td>
-                <td>Chemistry / Geography / Business Studies</td>
-                <td>Social Work / Business Math</td>
-            </tr>
-            <tr>
-                <td><strong>Thursday</strong></td>
-                <td>ICT (All)</td>
-                <td>Biology / Civics / Finance</td>
-                <td>Islamic History / Entrepreneurship</td>
-            </tr>
-            <tr>
-                <td><strong>Friday</strong></td>
-                <td colspan="3" style="background: #334155; color: #FACC15;">📌 Weekly Holiday</td>
             </tr>
         </table>
     </div>

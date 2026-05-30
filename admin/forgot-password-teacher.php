@@ -17,7 +17,10 @@ define('SMTP_SECURE', 'tls');
 define('OTP_EXPIRY_SECONDS', 300);
 define('OTP_RESEND_COOLDOWN', 30);
 
-function getSmtpResponse($socket) {
+/**
+ * @param resource $socket
+ */
+function getSmtpResponse($socket): string {
     $response = '';
     while ($str = fgets($socket, 515)) {
         $response .= $str;
@@ -28,7 +31,7 @@ function getSmtpResponse($socket) {
     return $response;
 }
 
-function smtpSendMail($to, $subject, $body) {
+function smtpSendMail(string $to, string $subject, string $body): bool|string {
     $smtpHost = SMTP_HOST;
     $smtpPort = SMTP_PORT;
     $smtpUser = SMTP_USER;
@@ -128,7 +131,7 @@ function smtpSendMail($to, $subject, $body) {
 }
 
 // Function to send SMS
-function sendSMS($mobile, $message) {
+function sendSMS(string $mobile, string $message): bool {
     $api_key = "K6uCeGByYLJRtIIZRzQ";
     $mobile = "88" . preg_replace('/^0/', '', $mobile); // Format: 880XXXXXXXXXX
 
@@ -307,7 +310,7 @@ if ($step === 'otp' && isset($_SESSION['forgot_otp_last_send'])) {
     $otpResendCooldown = max(0, OTP_RESEND_COOLDOWN - (time() - $_SESSION['forgot_otp_last_send']));
 }
 
-function sanitize($value) {
+function sanitize(string $value): string {
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 ?>

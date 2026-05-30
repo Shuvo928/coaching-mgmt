@@ -30,7 +30,14 @@ $api_config = [
 // ==============================================
 // Function to send SMS via different providers
 // ==============================================
-function sendViaAPI($phone, $message) {
+/**
+ * Send an SMS using the configured provider API.
+ *
+ * @param string $phone   Recipient phone number
+ * @param string $message Message text to send
+ * @return bool           True when SMS is sent successfully
+ */
+function sendViaAPI(string $phone, string $message): bool {
     global $api_config, $conn;
         
         $status = 'Failed';
@@ -140,6 +147,7 @@ function sendViaAPI($phone, $message) {
         header('Content-Type: application/json');
         $response = ['success' => false, 'message' => '', 'count' => 0];
         $type = $_POST['type'] ?? '';
+        $message = $_POST['message'] ?? '';
 
         switch($type) {
         case 'individual':
@@ -247,24 +255,6 @@ function sendViaAPI($phone, $message) {
                         }
                         break;
                         
-                    case 'exam_soon':
-                        $next_week = date('Y-m-d', strtotime('+7 days'));
-                        $students = mysqli_query($conn, "SELECT DISTINCT s.* FROM students s
-                                                          JOIN exam_routine er ON s.class_id = er.class_id
-                                                          WHERE er.exam_date BETWEEN CURDATE() AND '$next_week'
-                                                          AND s.status = 1");
-                        while($student = mysqli_fetch_assoc($students)) {
-                            $processed_count++;
-                            if(!empty($student['phone'])) {
-                                $personalized_message = str_replace('[NAME]', $student['first_name'], $message);
-                                $personalized_message = str_replace('[EXAM_DATE]', $er['exam_date'], $personalized_message);
-                                if(sendViaAPI($student['phone'], $personalized_message)) {
-                                    $sent_count++;
-                                }
-                                usleep(300000);
-                            }
-                        }
-                        break;
                 }
             }
             

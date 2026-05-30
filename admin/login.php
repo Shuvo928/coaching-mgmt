@@ -5,6 +5,12 @@ require_once '../includes/db.php';
 $error = '';
 $success = '';
 
+/**
+ * Get the student name expression based on available columns in the students table.
+ *
+ * @param mysqli $conn
+ * @return string
+ */
 function studentNameSelectExpression($conn) {
     static $expression = null;
     if ($expression !== null) {
@@ -26,10 +32,24 @@ function studentNameSelectExpression($conn) {
     return $expression;
 }
 
+/**
+ * Check whether an admission_applications column exists.
+ *
+ * @param mysqli $conn
+ * @param string $column
+ * @return bool
+ */
 function admissionColumnExists($conn, $column) {
     return mysqli_num_rows(mysqli_query($conn, "SHOW COLUMNS FROM admission_applications LIKE '$column'")) > 0;
 }
 
+/**
+ * Build the SQL query for fetching an admission application by username.
+ *
+ * @param mysqli $conn
+ * @param string $username
+ * @return string
+ */
 function getAdmissionApplicationQuery($conn, $username) {
     $hasFullName = admissionColumnExists($conn, 'full_name');
     $hasFirstName = admissionColumnExists($conn, 'first_name');
@@ -58,6 +78,12 @@ function getAdmissionApplicationQuery($conn, $username) {
     return "SELECT *, $nameExpr, $phoneExpr FROM admission_applications WHERE username = '$username' LIMIT 1";
 }
 
+/**
+ * Generate a new unique student ID.
+ *
+ * @param mysqli $conn
+ * @return string
+ */
 function generateStudentID($conn) {
     $prefix = 'STU';
     $year = date('Y');
@@ -85,6 +111,13 @@ function generateStudentID($conn) {
     return $newId;
 }
 
+/**
+ * Create a user record from an admission application.
+ *
+ * @param mysqli $conn
+ * @param array $admission
+ * @return bool
+ */
 function createStudentUserFromAdmission($conn, $admission) {
     if(empty($admission['username']) || empty($admission['password_hash'])) {
         return false;
@@ -117,8 +150,8 @@ function createStudentUserFromAdmission($conn, $admission) {
     $user_id = mysqli_insert_id($conn);
     $student_unique_id = generateStudentID($conn);
 
-    $student_query = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, photo, class_id, admission_date, status) 
-                      VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', '', '', '$email', '$mobile', NULL, '$gender', '$address', NULL, NULL, NOW(), 1)";
+    $student_query = "INSERT INTO students (user_id, student_id, first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, photo, class_id, program, admission_date, status) 
+                      VALUES ($user_id, '$student_unique_id', '$first_name', '$last_name', '', '', '$email', '$mobile', NULL, '$gender', '$address', NULL, NULL, NULL, NOW(), 1)";
     if(!mysqli_query($conn, $student_query)) {
         mysqli_query($conn, "DELETE FROM users WHERE id = $user_id");
         return false;

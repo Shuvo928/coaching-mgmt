@@ -47,9 +47,15 @@ if(isset($_POST['student_id'])) {
         ELSE 'Test'
     END AS test_name";
 
-    $results_query = "SELECT $resultsCols
+    // Add teacher name from assigned subject teacher for this student's class
+    $resultsCols .= ", CONCAT(TRIM(t.first_name), ' ', TRIM(t.last_name)) AS teacher_name";
+
+    $results_query = "SELECT DISTINCT $resultsCols
                       FROM results r
                       LEFT JOIN subjects s ON r.subject_id = s.id
+                      LEFT JOIN students st ON r.student_id = st.id
+                      LEFT JOIN teacher_subjects ts ON ts.subject_id = r.subject_id AND ts.class_id = st.class_id
+                      LEFT JOIN teachers t ON ts.teacher_id = t.id AND t.status = 1
                       WHERE r.student_id = $student_id
                       ORDER BY r.created_at DESC";
 
@@ -150,6 +156,7 @@ if(isset($_POST['student_id'])) {
                             <th>Exam Type</th>
                             <th>Date</th>
                             <th>Marks Obtained</th>
+                            <th>Teacher</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -173,6 +180,7 @@ if(isset($_POST['student_id'])) {
                                     }
                                 ?>
                             </td>
+                            <td><?php echo htmlspecialchars(trim($row['teacher_name'] ?? '') !== '' ? $row['teacher_name'] : 'Not assigned yet'); ?></td>
                         </tr>
                         <?php } ?>
                     </tbody>

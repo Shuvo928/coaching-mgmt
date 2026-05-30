@@ -1,11 +1,11 @@
 <?php
 
-function parentTableExists($conn) {
+function parentTableExists(mysqli $conn): bool {
     $result = mysqli_query($conn, "SHOW TABLES LIKE 'parents'");
     return $result && mysqli_num_rows($result) > 0;
 }
 
-function ensureParentsTableExists($conn) {
+function ensureParentsTableExists(mysqli $conn): bool {
     $createTableSql = "CREATE TABLE IF NOT EXISTS parents (
         id INT AUTO_INCREMENT PRIMARY KEY,
         parent_name VARCHAR(100) NOT NULL,
@@ -24,7 +24,7 @@ function ensureParentsTableExists($conn) {
     return mysqli_query($conn, $createTableSql);
 }
 
-function getParentByUsername($conn, $username) {
+function getParentByUsername(mysqli $conn, string $username): ?array {
     if (!parentTableExists($conn)) {
         return null;
     }
@@ -35,7 +35,7 @@ function getParentByUsername($conn, $username) {
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
 
-function getParentById($conn, $parent_id) {
+function getParentById(mysqli $conn, int $parent_id): ?array {
     if (!parentTableExists($conn)) {
         return null;
     }
@@ -45,7 +45,7 @@ function getParentById($conn, $parent_id) {
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
 
-function getParentStudentRows($conn, $parent_id) {
+function getParentStudentRows(mysqli $conn, int $parent_id): array {
     $parent_id = (int) $parent_id;
     $students = [];
 
@@ -59,7 +59,7 @@ function getParentStudentRows($conn, $parent_id) {
     return $students;
 }
 
-function getStudentRowsByMobile($conn, $mobile) {
+function getStudentRowsByMobile(mysqli $conn, string $mobile): array {
     $students = [];
     if (empty($mobile)) {
         return $students;
@@ -76,7 +76,7 @@ function getStudentRowsByMobile($conn, $mobile) {
     return $students;
 }
 
-function getParentStudentRowsForSession($conn, $parent_id, $session_student_mobile = '') {
+function getParentStudentRowsForSession(mysqli $conn, int $parent_id, string $session_student_mobile = ''): array {
     $students = getParentStudentRows($conn, $parent_id);
     if (empty($students) && !empty($session_student_mobile)) {
         $students = getStudentRowsByMobile($conn, $session_student_mobile);
@@ -84,17 +84,17 @@ function getParentStudentRowsForSession($conn, $parent_id, $session_student_mobi
     return $students;
 }
 
-function getParentStudentIds($conn, $parent_id, $session_student_mobile = '') {
+function getParentStudentIds(mysqli $conn, int $parent_id, string $session_student_mobile = ''): array {
     $students = getParentStudentRowsForSession($conn, $parent_id, $session_student_mobile);
-    return array_column($students, 'id');
+    return array_map('intval', array_column($students, 'id'));
 }
 
-function getFirstParentStudent($conn, $parent_id, $session_student_mobile = '') {
+function getFirstParentStudent(mysqli $conn, int $parent_id, string $session_student_mobile = ''): ?array {
     $students = getParentStudentRowsForSession($conn, $parent_id, $session_student_mobile);
     return $students[0] ?? null;
 }
 
-function findParentRecord($conn, $parent_email, $parent_phone) {
+function findParentRecord(mysqli $conn, string $parent_email, string $parent_phone): ?array {
     if (!parentTableExists($conn)) {
         ensureParentsTableExists($conn);
     }
@@ -115,8 +115,8 @@ function findParentRecord($conn, $parent_email, $parent_phone) {
     $result = mysqli_query($conn, $query);
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
-
-function createOrUpdateParentRecord($conn, $parent_name, $parent_email, $parent_phone, $username, $password_hash, $status = 'Active') {
+//“admin set credentials korar por parent account create/update hobe”
+function createOrUpdateParentRecord(mysqli $conn, string $parent_name, string $parent_email, string $parent_phone, string $username, string $password_hash, string $status = 'Active'): ?int {
     ensureParentsTableExists($conn);
 
     $parent_name = mysqli_real_escape_string($conn, $parent_name);
@@ -152,7 +152,7 @@ function createOrUpdateParentRecord($conn, $parent_name, $parent_email, $parent_
     return null;
 }
 
-function linkParentToStudentByPhone($conn, $parent_id, $student_phone) {
+function linkParentToStudentByPhone(mysqli $conn, int $parent_id, string $student_phone): bool {
     if (empty($student_phone)) {
         return false;
     }
@@ -162,7 +162,7 @@ function linkParentToStudentByPhone($conn, $parent_id, $student_phone) {
     return mysqli_query($conn, "UPDATE students SET parent_id = $parent_id WHERE phone = '$student_phone'");
 }
 
-function ensureParentDiscontinueRequestsTableExists($conn) {
+function ensureParentDiscontinueRequestsTableExists(mysqli $conn): bool {
     $createTableSql = "CREATE TABLE IF NOT EXISTS parent_discontinue_requests (
         id INT AUTO_INCREMENT PRIMARY KEY,
         parent_id INT NOT NULL,
@@ -183,7 +183,7 @@ function ensureParentDiscontinueRequestsTableExists($conn) {
     return mysqli_query($conn, $createTableSql);
 }
 
-function getParentDiscontinueRequestByParent($conn, $parent_id) {
+function getParentDiscontinueRequestByParent(mysqli $conn, int $parent_id): ?array {
     ensureParentDiscontinueRequestsTableExists($conn);
     $parent_id = (int) $parent_id;
     $query = "SELECT * FROM parent_discontinue_requests WHERE parent_id = $parent_id ORDER BY requested_at DESC LIMIT 1";
@@ -191,7 +191,7 @@ function getParentDiscontinueRequestByParent($conn, $parent_id) {
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
 
-function getParentDiscontinueRequestById($conn, $request_id) {
+function getParentDiscontinueRequestById(mysqli $conn, int $request_id): ?array {
     ensureParentDiscontinueRequestsTableExists($conn);
     $request_id = (int) $request_id;
     $query = "SELECT * FROM parent_discontinue_requests WHERE id = $request_id LIMIT 1";
@@ -199,7 +199,7 @@ function getParentDiscontinueRequestById($conn, $request_id) {
     return ($result && mysqli_num_rows($result) > 0) ? mysqli_fetch_assoc($result) : null;
 }
 
-function createParentDiscontinueRequest($conn, $parent_id, $parent_name, $parent_email, $parent_phone, $student_id, $student_name, $due_amount, $due_summary) {
+function createParentDiscontinueRequest(mysqli $conn, int $parent_id, string $parent_name, string $parent_email, string $parent_phone, ?int $student_id, string $student_name, float $due_amount, string $due_summary): bool {
     ensureParentDiscontinueRequestsTableExists($conn);
 
     $parent_id = (int) $parent_id;
@@ -217,7 +217,7 @@ function createParentDiscontinueRequest($conn, $parent_id, $parent_name, $parent
     return mysqli_query($conn, $query);
 }
 
-function updateParentDiscontinueRequestStatus($conn, $request_id, $status, $admin_id = null, $note = '') {
+function updateParentDiscontinueRequestStatus(mysqli $conn, int $request_id, string $status, ?int $admin_id = null, string $note = ''): bool {
     ensureParentDiscontinueRequestsTableExists($conn);
     $request_id = (int) $request_id;
     $status = mysqli_real_escape_string($conn, $status);
@@ -229,18 +229,18 @@ function updateParentDiscontinueRequestStatus($conn, $request_id, $status, $admi
     return mysqli_query($conn, $query);
 }
 
-function getPendingParentDiscontinueRequestCount($conn) {
+function getPendingParentDiscontinueRequestCount(mysqli $conn): int {
     ensureParentDiscontinueRequestsTableExists($conn);
     $result = mysqli_query($conn, "SELECT COUNT(*) AS total FROM parent_discontinue_requests WHERE status = 'Pending'");
     return ($result && ($row = mysqli_fetch_assoc($result))) ? (int)$row['total'] : 0;
 }
 
-function getPendingAdmissionsCount($conn) {
+function getPendingAdmissionsCount(mysqli $conn): int {
     $result = mysqli_query($conn, "SELECT COUNT(*) AS total FROM admission_applications WHERE status = 'Pending'");
     return ($result && ($row = mysqli_fetch_assoc($result))) ? (int)$row['total'] : 0;
 }
 
-function getAllParentDiscontinueRequests($conn) {
+function getAllParentDiscontinueRequests(mysqli $conn): array {
     ensureParentDiscontinueRequestsTableExists($conn);
     $result = mysqli_query($conn, "SELECT * FROM parent_discontinue_requests ORDER BY requested_at DESC");
     $requests = [];

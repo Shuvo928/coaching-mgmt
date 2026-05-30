@@ -37,12 +37,6 @@ $student = mysqli_fetch_assoc($student_result);
 
 $student_ids_list = !empty($student_ids) ? implode(',', array_map('intval', $student_ids)) : '0';
 
-// Get total classes attended
-$class_query = "SELECT COUNT(*) as classes_attended FROM attendance 
-                WHERE student_id IN ($student_ids_list) AND status = 'Present'";
-$class_result = mysqli_query($conn, $class_query);
-$class_data = mysqli_fetch_assoc($class_result);
-
 // Get average marks
 $marks_query = "SELECT AVG(percentage) as avg_marks FROM results 
                 WHERE student_id IN ($student_ids_list)";
@@ -370,12 +364,6 @@ $months = ($duration->y * 12) + $duration->m;
                     </a>
                 </li>
                 <li>
-                    <a href="attendance.php">
-                        <i class="fas fa-calendar-check"></i>
-                        Attendance
-                    </a>
-                </li>
-                <li>
                     <a href="results.php">
                         <i class="fas fa-chart-bar"></i>
                         Results & Grades
@@ -438,12 +426,6 @@ $months = ($duration->y * 12) + $duration->m;
             <!-- Key Metrics -->
             <div class="progress-metrics">
                 <div class="metric-card">
-                    <div class="metric-icon blue"><i class="fas fa-calendar-check"></i></div>
-                    <div class="metric-value"><?php echo isset($class_data['classes_attended']) ? number_format($class_data['classes_attended']) : 0; ?></div>
-                    <div class="metric-label">Classes Attended</div>
-                </div>
-                
-                <div class="metric-card">
                     <div class="metric-icon green"><i class="fas fa-chart-line"></i></div>
                     <div class="metric-value"><?php echo isset($marks_data['avg_marks']) ? number_format($marks_data['avg_marks'], 1) : '--'; ?>%</div>
                     <div class="metric-label">Average Marks</div>
@@ -495,10 +477,6 @@ $months = ($duration->y * 12) + $duration->m;
                 <!-- Performance Overview -->
                 <div class="detail-card">
                     <h5><i class="fas fa-chart-bar"></i>Performance Overview</h5>
-                    <div class="detail-item">
-                        <span class="detail-item-label">Classes Attended</span>
-                        <span class="detail-item-value"><?php echo isset($class_data['classes_attended']) ? $class_data['classes_attended'] : 0; ?></span>
-                    </div>
                     <div class="detail-item">
                         <span class="detail-item-label">Average Score</span>
                         <span class="detail-item-value"><?php echo isset($marks_data['avg_marks']) ? number_format($marks_data['avg_marks'], 1) . "%" : "N/A"; ?></span>
